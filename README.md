@@ -1,40 +1,47 @@
 # 📺 Panasonic Google TV Smart Hub & Ad-Mute Suite
 
-Sistema integral de automatización, mando a distancia inteligente y silenciador automático de publicidad para televisores **Panasonic con Google TV / Android 14** (y Viera).
+Sistema integral de automatización, privacidad, mando a distancia inteligente y silenciador automático de publicidad para televisores **Panasonic con Google TV / Android 14** (y Viera).
 
 Diseñado específicamente para ejecutarse de forma autónoma en una **Raspberry Pi Zero 2 W** (24/7 de bajo consumo), en tu ordenador con **Windows**, o mediante un microcontrolador **ESP32**.
 
 ---
 
-## 🌟 Características Principales
+## 🌟 Características y Módulos Incluidos
 
-1. **🔇 Silenciador Automático de Publicidad:**
-   * Monitorea la señal del sintonizador interno mediante eventos de sistema **HbbTV / DVB-TA** (`exchangeType==28`, `getHBBTVBannerControl`) y conmutaciones del amplificador de audio (`AUDIO_AMP`).
-   * Silencia la TV en el milisegundo exacto en que entra el bloque de anuncios y restaura el sonido automáticamente al terminar el corte.
-   * Cuenta con un *Watchdog* de seguridad para garantizar que la televisión nunca se quede silenciada permanentemente.
+### 1. 🔇 Silenciador Automático de Publicidad
+* Monitorea la señal del sintonizador interno mediante eventos de sistema **HbbTV / DVB-TA** (`exchangeType==28`, `getHBBTVBannerControl`) y conmutaciones del amplificador de audio (`AUDIO_AMP`).
+* Silencia la TV en el milisegundo exacto en que entra el bloque de anuncios y restaura el sonido automáticamente al terminar el corte.
+* Cuenta con un *Watchdog* de seguridad para garantizar que la televisión nunca se quede silenciada permanentemente.
 
-2. **📱 Mando a Distancia Web Táctil (Móvil):**
-   * Servidor web integrado en el puerto `8080`.
-   * Abre `http://IP_DE_LA_RASPBERRY:8080` desde el navegador de tu móvil o tablet:
-     * Botón gigante **«MODO PUBLICIDAD (150s)»** con cuenta regresiva.
-     * Control de volumen (`Vol +`, `Vol -`, `Mute`).
-     * Cruceta de navegación táctil (Arriba, Abajo, Izquierda, Derecha, OK, Volver, Home, Apagar).
-     * Indicador en tiempo real del canal de televisión sintonizado.
+### 2. 🛡️ Escudo de Privacidad y Bloqueo de Telemetría (Anti-Espionaje)
+* **Bloqueo a nivel de sistema operativo:** Activa el DNS Privado seguro (*DoT via AdGuard*) por ADB en la Google TV, bloqueando anuncios y rastreadores sin alterar la red doméstica.
+* **Supresión de paquetes espía:** Desactiva los módulos de consentimientos y envío de métricas de diagnóstico de Android TV (`feedback` y `feedbackconsent`).
+* **Lista de bloqueo TDT:** Genera una lista negra de dominios de publicidad dirigida española (*Smartclip, Sunmedia, Comscore, HbbTV trackers*) lista para importar en Pi-hole o en el router.
 
-3. **🚀 Lanzador de Canales y Aplicaciones:**
-   * Acceso en 1 clic para abrir: **YouTube, Netflix, Movistar+, Atresplayer, RTVE Play, Tivify o sintonizar la TDT en directo**.
+### 3. 🎬 Enriquecimiento de Guía EPG con IMDb y Filmaffinity
+* Consulta en tiempo real las bases de datos de cine (TMDb / Wikipedia / Filmaffinity) para obtener la **ficha técnica oficial, puntuación sobre 10 ⭐, año de estreno, póster y sinopsis en castellano**.
+* Muestra distintivos de **«🏆 Joya Recomendada»** si la película en emisión supera una nota de 7.5.
 
-4. **⌨️ Teclado Remoto / Enviar Texto:**
-   * Escribe búsquedas de YouTube, títulos o contraseñas Wi-Fi complejas desde el teclado de tu PC o móvil directamente en el televisor (sin la molestia de teclear letra por letra con el mando físico).
+### 4. 📱 Mando a Distancia Web Táctil (Móvil / Tablet)
+* Servidor web integrado en el puerto `8080`.
+* Abre `http://IP_DE_LA_RASPBERRY:8080` desde el navegador de tu móvil o tablet:
+  * Botón gigante **«MODO PUBLICIDAD (150s)»** con cuenta regresiva.
+  * Ficha en vivo de la película/serie en emisión con póster e información.
+  * Botones rápidos: **«🎵 ¿Qué canción es?»**, **«🔄 Zapping Anti-Publi»**, **«📺 Pantalla Alternativa»** y **«🛡️ Escudo Privacidad»**.
+  * Cruceta de navegación táctil (Arriba, Abajo, Izquierda, Derecha, OK, Volver, Home, Apagar).
+  * Control de volumen (`Vol +`, `Vol -`, `Mute`).
 
-5. **⏰ Sleep Timer Inteligente (Apagado Nocturno):**
-   * Programa el apagado de la tele en 15, 30 o 60 minutos con **atenuación progresiva del volumen** durante los últimos minutos para conciliar el sueño.
+### 5. 🚀 Lanzador de Canales y Aplicaciones
+* Acceso en 1 clic para abrir: **YouTube, Netflix, Movistar+, Atresplayer, RTVE Play, Tivify o sintonizar la TDT en directo**.
 
-6. **🧹 Acelerador y Limpieza de RAM de la TV:**
-   * Cierra aplicaciones secundarias colgadas en segundo plano y libera la memoria caché de Android 14 para mantener la TV fluida y rápida.
+### 6. ⌨️ Teclado Remoto / Enviar Texto
+* Escribe búsquedas de YouTube, títulos o contraseñas complejas desde el teclado de tu PC o móvil directamente en el televisor (sin teclear letra por letra con el mando físico).
 
-7. **📊 Diagnóstico y Estado en Tiempo Real:**
-   * Consulta el canal sintonizado, memoria RAM libre, espacio en almacenamiento interno, temperatura y tiempo de actividad.
+### 7. ⏰ Sleep Timer Inteligente (Apagado Nocturno)
+* Programa el apagado de la tele en 15, 30 o 60 minutos con **atenuación progresiva del volumen** durante los últimos minutos para conciliar el sueño.
+
+### 8. 🧹 Acelerador y Limpieza de RAM de la TV
+* Cierra aplicaciones secundarias colgadas en segundo plano y libera la memoria caché de Android 14 para mantener la TV fluida y rápida.
 
 ---
 
@@ -43,9 +50,13 @@ Diseñado específicamente para ejecutarse de forma autónoma en una **Raspberry
 ```text
 panasonic-tv-ad-mute/
 ├── core/
-│   └── tv_manager.py            # Librería principal de control ADB para Android TV
+│   ├── tv_manager.py            # Librería principal de control ADB para Android TV
+│   ├── media_info.py            # Integración de fichas IMDb / Filmaffinity y carátulas
+│   ├── privacy_shield.py        # Bloqueador de telemetría y rastreo TDT
+│   └── detectar_tv.py           # Herramienta de test y diagnóstico de compatibilidad
 ├── menu_tv.py                   # Menú interactivo en terminal (Raspberry Pi y Windows)
-├── web_remote.py                # Servidor Web y mando a distancia para el móvil (puerto 8080)
+├── web_remote.py                # Servidor Web táctil móvil con ficha EPG (puerto 8080)
+├── COMPATIBILIDAD.md            # Guía detallada de televisores compatibles
 ├── raspberry_pi/                # Módulo listo para Raspberry Pi Zero 2 W
 │   ├── panasonic_ad_mute.py     # Demonio de escucha continua y silenciado automático
 │   ├── panasonic-mute.service   # Servicio systemd de arranque automático 24/7
@@ -97,15 +108,6 @@ Cuando recibas tu kit **GeeekPi Raspberry Pi Zero 2 W**:
    * **`windows/control_tv.bat`**: Abre el menú completo con mando virtual, lanzador de apps, limpiador de RAM y diagnóstico.
    * **`windows/modo_publi_150s.bat`**: Silencia la televisión en 1 clic durante 2 minutos y medio.
    * **`windows/auto_mute_servicio.bat`**: Inicia el detector de anuncios automático en segundo plano.
-
----
-
-## 🔌 Uso con ESP32 (Microcontrolador de 4 €)
-
-1. Abre `esp32/panasonic_esp32_hub.ino` con el **Arduino IDE**.
-2. Introduce tu red Wi-Fi y contraseña.
-3. Conecta el ESP32 por USB y súbelo.
-4. El botón `BOOT` de la placa silenciará la TV con una cuenta regresiva de 150 segundos y levantará una web en su IP local.
 
 ---
 
