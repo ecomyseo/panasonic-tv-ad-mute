@@ -169,3 +169,31 @@ class PanasonicTVManager:
     def cancel_sleep_timer(self):
         self.cancel_sleep = True
         return "Temporizador de apagado cancelado."
+
+    # --- PROYECCIÓN DE BANNER Y BOTÓN ESPECIAL EN PANTALLA ---
+    def show_banner_on_tv(self, server_ip="192.168.1.50", port=8080, title=None, duration=8) -> str:
+        """
+        Abre el banner flotante de IMDb/Filmaffinity directamente en la pantalla de la TV.
+        El banner se cierra automáticamente tras la duración indicada.
+        """
+        import urllib.parse
+        param = f"?title={urllib.parse.quote(title)}" if title else ""
+        url = f"http://{server_ip}:{port}/tv_banner{param}"
+        # Abrir navegador en la TV
+        self.adb(f"shell am start -n com.vewd.core.browser/.BrowserActivity -d '{url}'")
+
+        # Programar cierre automático tras N segundos
+        def _auto_close():
+            time.sleep(duration)
+            self.key_back()
+
+        threading.Thread(target=_auto_close, daemon=True).start()
+        return f"Banner proyectado en la TV ({url}) por {duration} segundos."
+
+    def post_tv_notification(self, title: str, text: str) -> str:
+        """Muestra una notificación emergente flotante (Heads-up) en la TV."""
+        safe_title = title.replace("'", "").replace('"', "")
+        safe_text = text.replace("'", "").replace('"', "")
+        self.adb(f"shell cmd notification post -S bigtext -t '{safe_title}' 'tv_hub' '{safe_text}'")
+        return "Notificación emergente enviada a la pantalla de la TV."
+

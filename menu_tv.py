@@ -170,12 +170,13 @@ def main():
         print(" 1. 🔇 Silenciar / Modo Publicidad (150 segundos)")
         print(" 2. 🛡️  Escudo de Privacidad (Bloquear telemetría y rastreo TDT)")
         print(" 3. 🎬 Consulta de Ficha IMDb / Filmaffinity y notas")
-        print(" 4. 🎮 Mando a distancia virtual (Cruceta, OK, Home, Back)")
-        print(" 5. 🚀 Lanzador de Apps (YouTube, Netflix, Movistar+, TDT Live...)")
-        print(" 6. ⌨️  Escribir texto / contraseñas en la TV desde teclado")
-        print(" 7. ⏰ Temporizador de apagado inteligente (Sleep Timer)")
-        print(" 8. 🧹 Acelerar y optimizar memoria RAM de la TV")
-        print(" 9. 🌐 Iniciar Mando Web Móvil (puerto 8080)")
+        print(" 4. 📺 Proyectar Banner con Botón Especial en la pantalla de la TV")
+        print(" 5. 🎮 Mando a distancia virtual (Cruceta, OK, Home, Back)")
+        print(" 6. 🚀 Lanzador de Apps (YouTube, Netflix, Movistar+, TDT Live...)")
+        print(" 7. ⌨️  Escribir texto / contraseñas en la TV desde teclado")
+        print(" 8. ⏰ Temporizador de apagado inteligente (Sleep Timer)")
+        print(" 9. 🧹 Acelerar y optimizar memoria RAM de la TV")
+        print(" 10. 🌐 Iniciar Mando Web Móvil (puerto 8080)")
         print(" 0. Salir")
         print("=" * 68)
         op = input("Elige una opción: ").strip()
@@ -189,19 +190,26 @@ def main():
         elif op == "3":
             menu_imdb()
         elif op == "4":
-            menu_mando()
+            titulo = input("Título a proyectar en la TV [Vacío para Inception]: ").strip()
+            peli = titulo if titulo else "Inception"
+            print(f"\nProyectando banner de '{peli}' en la pantalla de la televisión...")
+            res = tv.show_banner_on_tv(title=peli, duration=8)
+            print(f"[OK] {res}")
+            time.sleep(1.5)
         elif op == "5":
-            menu_apps()
+            menu_mando()
         elif op == "6":
-            escribir_texto()
+            menu_apps()
         elif op == "7":
-            sleep_timer_menu()
+            escribir_texto()
         elif op == "8":
+            sleep_timer_menu()
+        elif op == "9":
             print("\nOptimizando memoria RAM...")
             res = tv.clean_ram()
             print(f"[OK] {res}")
             time.sleep(1.5)
-        elif op == "9":
+        elif op == "10":
             web_script = os.path.join(os.path.dirname(__file__), "web_remote.py")
             os.system(f"python \"{web_script}\"")
         elif op == "0":

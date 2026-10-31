@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
 Panasonic Google TV Web Remote & Smart Hub
-Panel web táctil de control, ficha IMDb/Filmaffinity, bloqueador de telemetría y automatizaciones.
+Panel web táctil de control, ficha IMDb/Filmaffinity, proyector de banner en TV,
+bloqueador de telemetría y automatizaciones.
 Puerto: 8080.
 """
 
 import sys
 import os
 import json
+import socket
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -23,12 +25,200 @@ PORT = int(os.getenv("WEB_PORT", "8080"))
 tv = PanasonicTVManager(tv_ip=TV_IP)
 privacy = PrivacyShield(tv_ip=TV_IP)
 
-HTML_PAGE = """<!DOCTYPE html>
+def obtener_mi_ip_local():
+    """Detecta la IP local del PC/Raspberry en la red de casa."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+LOCAL_IP = obtener_mi_ip_local()
+
+# =========================================================================
+# PLANTILLA 1: PÁGINA DEL BANNER EN LA PANTALLA DE LA TV (/tv_banner)
+# Diseñada especialmente para verse a 3 metros de distancia (10-foot UI)
+# =========================================================================
+TV_BANNER_HTML = """<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Banner TV IMDb</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: #ffffff;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+        }
+        .banner-overlay {
+            background: linear-gradient(180deg, rgba(15, 23, 42, 0.85) 0%, rgba(9, 13, 22, 0.96) 100%);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-top: 2px solid #38bdf8;
+            padding: 24px 40px;
+            display: flex;
+            align-items: center;
+            gap: 32px;
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.8);
+            animation: slideUp 0.5s ease-out;
+            position: relative;
+        }
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+        .poster {
+            width: 110px;
+            height: 160px;
+            border-radius: 12px;
+            object-fit: cover;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+            border: 1px solid rgba(255,255,255,0.2);
+            flex-shrink: 0;
+        }
+        .content {
+            flex: 1;
+        }
+        .badge {
+            display: inline-block;
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+            font-size: 14px;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 20px;
+            margin-bottom: 6px;
+            letter-spacing: 0.5px;
+        }
+        .title {
+            font-size: 28px;
+            font-weight: 800;
+            margin: 0 0 6px 0;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+        }
+        .rating {
+            font-size: 20px;
+            font-weight: 700;
+            color: #facc15;
+            margin-bottom: 8px;
+        }
+        .synopsis {
+            font-size: 16px;
+            color: #cbd5e1;
+            line-height: 1.4;
+            max-width: 900px;
+        }
+        /* Botón Especial Destacado en la TV */
+        .special-btn {
+            background: linear-gradient(135deg, #e11d48, #be123c);
+            color: white;
+            border: 2px solid #fda4af;
+            border-radius: 18px;
+            padding: 18px 28px;
+            font-size: 18px;
+            font-weight: 800;
+            cursor: pointer;
+            box-shadow: 0 0 25px rgba(225, 29, 72, 0.6);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            transition: transform 0.2s;
+            text-decoration: none;
+            flex-shrink: 0;
+        }
+        .special-btn:focus, .special-btn:hover {
+            transform: scale(1.05);
+            background: #f43f5e;
+            box-shadow: 0 0 35px rgba(244, 63, 94, 0.9);
+        }
+        .special-sub {
+            font-size: 12px;
+            font-weight: 500;
+            opacity: 0.9;
+        }
+        .progress-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 4px;
+            background: #38bdf8;
+            width: 100%;
+            animation: countdown 8s linear forwards;
+        }
+        @keyframes countdown {
+            from { width: 100%; }
+            to { width: 0%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="banner-overlay">
+        <img id="tv-poster" class="poster" src="https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=400&q=80" alt="Póster">
+        <div class="content">
+            <div id="tv-badge" class="badge">🏆 JOYA DEL CINE TDT</div>
+            <div id="tv-title" class="title">Cargando película...</div>
+            <div id="tv-rating" class="rating">⭐ 8.5 / 10 IMDb · 8.2 Filmaffinity</div>
+            <div id="tv-synopsis" class="synopsis">Obteniendo información de la película desde la red local...</div>
+        </div>
+        
+        <!-- Botón Especial Destacado -->
+        <a href="javascript:void(0)" class="special-btn" id="tv-btn" onclick="accionBotonEspecial()">
+            <span>🔇 MODO ANUNCIOS</span>
+            <span class="special-sub">(Pulsa OK en el mando)</span>
+        </a>
+
+        <div class="progress-bar"></div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const movieTitle = urlParams.get('title') || 'Inception';
+
+        fetch('/api/movie_info?title=' + encodeURIComponent(movieTitle))
+            .then(r => r.json())
+            .then(d => {
+                document.getElementById('tv-title').innerText = d.title + ' (' + d.year + ')';
+                document.getElementById('tv-rating').innerText = d.rating;
+                document.getElementById('tv-synopsis').innerText = d.synopsis;
+                document.getElementById('tv-poster').src = d.poster_url;
+                document.getElementById('tv-badge').innerText = d.badge || 'TDT DIRECTO';
+            })
+            .catch(() => {});
+
+        function accionBotonEspecial() {
+            fetch('/api/action?cmd=publi')
+                .then(() => { window.history.back(); });
+        }
+
+        // Cierre automático tras 8 segundos si no se pulsa nada
+        setTimeout(() => {
+            window.history.back();
+        }, 8500);
+    </script>
+</body>
+</html>
+"""
+
+# =========================================================================
+# PLANTILLA 2: MANDO A DISTANCIA WEB PARA EL MÓVIL (/ o /index.html)
+# =========================================================================
+HTML_MOBILE_PAGE = """<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Panasonic Smart Hub & EPG</title>
+    <title>Panasonic Smart Hub</title>
     <style>
         :root {
             --bg: #090d16;
@@ -86,6 +276,19 @@ HTML_PAGE = """<!DOCTYPE html>
             transition: transform 0.1s;
         }
         .btn-publi:active { transform: scale(0.98); }
+        .btn-tv-banner {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #0284c7, #0369a1);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: bold;
+            margin-bottom: 14px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+        }
         .card {
             background: var(--card);
             border: 1px solid var(--card-border);
@@ -93,7 +296,6 @@ HTML_PAGE = """<!DOCTYPE html>
             padding: 16px;
             margin-bottom: 14px;
         }
-        /* Ficha IMDb / Filmaffinity */
         .movie-card {
             display: flex;
             gap: 14px;
@@ -161,7 +363,6 @@ HTML_PAGE = """<!DOCTYPE html>
             font-size: 14px;
             font-weight: 500;
             cursor: pointer;
-            transition: background 0.1s;
         }
         button.btn:active { background: #3b4760; }
         .dpad {
@@ -213,6 +414,11 @@ HTML_PAGE = """<!DOCTYPE html>
         <!-- Botón Silenciador de Publicidad Principal -->
         <button class="btn-publi" onclick="sendAction('publi')">
             🔇 MODO PUBLICIDAD (150s)
+        </button>
+
+        <!-- Botón Especial para Proyectar Banner en la TV -->
+        <button class="btn-tv-banner" onclick="sendAction('project_banner')">
+            📺 PROYECTAR FICHA IMDB EN LA TELEVISIÓN
         </button>
 
         <!-- Ficha Enriquecida IMDb / Filmaffinity -->
@@ -295,8 +501,14 @@ HTML_PAGE = """<!DOCTYPE html>
     <div id="toast">Acción ejecutada</div>
 
     <script>
+        let peliActual = 'Inception';
+
         function sendAction(action) {
-            fetch('/api/action?cmd=' + action)
+            let url = '/api/action?cmd=' + action;
+            if (action === 'project_banner') {
+                url += '&title=' + encodeURIComponent(peliActual);
+            }
+            fetch(url)
                 .then(r => r.json())
                 .then(data => {
                     showToast(data.message || 'OK');
@@ -313,6 +525,7 @@ HTML_PAGE = """<!DOCTYPE html>
         }
 
         function cargarFicha(query) {
+            peliActual = query;
             fetch('/api/movie_info?title=' + encodeURIComponent(query))
                 .then(r => r.json())
                 .then(d => {
@@ -326,14 +539,13 @@ HTML_PAGE = """<!DOCTYPE html>
         }
 
         function buscarPeliculaManual() {
-            const val = document.getElementById('custom-search').value.strip ? document.getElementById('custom-search').value.trim() : document.getElementById('custom-search').value;
+            const val = document.getElementById('custom-search').value.trim();
             if (val) {
                 cargarFicha(val);
                 showToast('Buscando: ' + val);
             }
         }
 
-        // Cargar ficha inicial al arrancar
         setTimeout(() => { cargarFicha('Inception'); }, 800);
 
         setInterval(() => {
@@ -353,7 +565,12 @@ class RemoteHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
-            self.wfile.write(HTML_PAGE.encode("utf-8"))
+            self.wfile.write(HTML_MOBILE_PAGE.encode("utf-8"))
+        elif url.path == "/tv_banner":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(TV_BANNER_HTML.encode("utf-8"))
         elif url.path == "/api/status":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -371,6 +588,7 @@ class RemoteHandler(BaseHTTPRequestHandler):
         elif url.path == "/api/action":
             qs = urllib.parse.parse_qs(url.query)
             cmd = qs.get("cmd", [""])[0]
+            title = qs.get("title", ["Inception"])[0]
             msg = "Comando ejecutado"
 
             if cmd == "mute":
@@ -391,6 +609,9 @@ class RemoteHandler(BaseHTTPRequestHandler):
                 tv.toggle_mute()
                 tv.start_sleep_timer(2.5, gradual=False)
                 msg = "Modo Publicidad activado (150s)"
+            elif cmd == "project_banner":
+                # Proyectar el banner en la pantalla de la TV
+                msg = tv.show_banner_on_tv(server_ip=LOCAL_IP, port=PORT, title=title, duration=8)
             elif cmd == "privacy_dns":
                 msg = privacy.enable_adguard_private_dns()
             elif cmd == "shazam":
@@ -421,8 +642,9 @@ class RemoteHandler(BaseHTTPRequestHandler):
 def main():
     tv.connect()
     server = HTTPServer(("0.0.0.0", PORT), RemoteHandler)
-    print(f"\n[Mando Web & EPG] Servidor web iniciado en el puerto {PORT}.")
-    print(f"-> Abre desde tu móvil o PC: http://localhost:{PORT}")
+    print(f"\n[Smart Hub & TV Banner] Servidor web iniciado en el puerto {PORT}.")
+    print(f"-> Mando Móvil: http://{LOCAL_IP}:{PORT}")
+    print(f"-> Banner TV:   http://{LOCAL_IP}:{PORT}/tv_banner")
     print("Presiona Ctrl+C para detener el servidor.\n")
     try:
         server.serve_forever()
