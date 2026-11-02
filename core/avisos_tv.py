@@ -108,6 +108,11 @@ class AvisosTV:
             return False
         return False
 
+    def ocultar(self) -> bool:
+        """Quita el aviso que haya en pantalla (solo la app propia)."""
+        salida = self.tv.shell("am", "broadcast", "-f", "32", "-n", RECEPTOR, "-a", "es.gmartos.tvhub.OCULTAR", timeout=8)
+        return bool(re.search(r"result=1\b", salida or ""))
+
     def _mostrar_tvoverlay(self, titulo, mensaje, segundos) -> bool:
         cuerpo = {"title": str(titulo)[:80], "message": str(mensaje)[:200], "source": "Panasonic TV Hub",
                   "smallIcon": "mdi:television", "duration": int(segundos)}

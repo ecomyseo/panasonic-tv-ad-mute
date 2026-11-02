@@ -20,6 +20,9 @@ Diseñado específicamente para ejecutarse de forma autónoma en una **Raspberry
   programa, otro identificador) siete veces en 9 minutos y ninguna en la media hora anterior: puede ser el corte. El hub
   la escucha y la **apunta junto a tus pulsaciones de «Silenciar»**; el mando enseña cuántas veces han coincidido y,
   cuando lo veas claro, el botón **«Silenciar con la señal»** la activa (`GUIA_SILENCIA=1`). De fábrica solo se apunta.
+* **Fotogramas negros (candidato, sin confirmar):** la tele escribe el brillo medio de la imagen unas 8 veces por
+  segundo (medido el 2/11/2026). Entre anuncio y anuncio suele haber un instante en negro, así que el hub apunta cuántos
+  hay cada minuto y en qué canal (`negros.jsonl` de la carpeta de estado), para compararlo con tus «Silenciar».
 
 ### 1b. ↩️ Vuelta al canal al acabar los anuncios
 * Si cambias de canal durante los anuncios, la Raspberry devuelve el sonido y, cuando calcula que el corte ha
@@ -43,6 +46,45 @@ Diseñado específicamente para ejecutarse de forma autónoma en una **Raspberry
 * El número de cada canal sale del rótulo de la TV o se pregunta una vez y se recuerda.
 * Los ejecuta el servicio del silenciador (`panasonic-mute`), que es el que está siempre en marcha.
 
+### 1c-bis. 📺 Más cosas de ver la tele
+* **Desde el principio:** si llegas a un programa ya empezado, el mando enseña «⏮ Verlo desde el principio», que
+  pulsa el botón azul de la tele (LOVEStv, TDT española). Depende de que el canal siga ofreciéndolo.
+* **Seguir una serie o programa:** «⭐ Seguir» en su ficha. Cada vez que salga en la guía (en tus canales y en el
+  que lo marcaste, hasta 12 horas antes) se crea solo su recordatorio. Si borras uno, no vuelve.
+* **Volumen de cada canal:** recuerda el volumen al que dejas cada canal y lo pone al volver (tras unos segundos
+  quieto en el canal; al zapear no aprende nada).
+* **Modo noche:** en la franja elegida, el volumen no pasa del tope (y ese tope no se apunta como tu volumen).
+* **¿La tienes sin anuncios?:** con una clave gratuita de TMDb, la ficha dice en qué plataformas de suscripción está
+  en España y, si la app está en la tele, un botón para abrirla.
+* **Despertador** (apagado de fábrica): a la hora y los días elegidos enciende la tele (por red), pone el canal y el
+  volumen. Necesita que la tele tenga el encendido por red activado.
+* **Apagar la tele si te vas** (apagado de fábrica): si el móvil no está en la WiFi de casa los minutos elegidos y
+  la tele sigue encendida, avisa en la pantalla y, si en un minuto nadie toca el volumen ni cambia de canal, la apaga.
+* Todo se ajusta en **«⚙️ Ajustes»** del mando y se guarda en `ajustes.json` de la carpeta de estado (nunca en el
+  repositorio: ahí van la clave de TMDb y el token de Home Assistant).
+
+### 1c-ter. 🏠 Casa (PREPARADO: se activa al rellenar «⚙️ Ajustes»)
+* **Home Assistant** (API REST con un token de larga duración):
+  * **Modo cine:** con una película (por la categoría de la guía) baja las luces elegidas; en los anuncios las deja
+    como estaban y al volver las baja otra vez.
+  * **Llamada entrante:** con el sensor `phone_state` de la app de Home Assistant en el móvil, silencia la tele y
+    avisa «Te llaman al móvil»; al colgar devuelve el sonido.
+  * **Avisos de la casa:** Home Assistant llama a `http://<hub>:8080/api/aviso_casa?clave=...&titulo=...&texto=...`
+    (la dirección completa sale en «⚙️ Ajustes») y el aviso sale en el centro de la tele.
+  * **Timbre con cámara:** al sonar, la foto de la cámara en el centro de la tele.
+* **Ambilight:** con una cámara que mira la pantalla, una tira LED con WLED y **HyperHDR** en una Raspberry Pi 4
+  (la Zero 2 W no llega). La imagen de la TDT y de las apps de la tele no sale por ningún HDMI y la tele no deja
+  capturarla, por eso una capturadora HDMI no sirve. El mando lo enciende y lo apaga.
+* **DNS antirrastreo con estadísticas** (`core/dns_hub.py`, para la Raspberry; apagado con `DNS_ACTIVO=0`): el hub
+  hace de DNS de la tele, contesta 0.0.0.0 a los rastreadores de la TDT y la telemetría, y apunta cada bloqueo con el
+  canal o la app que se estaba viendo. La página **`/privacidad`** (botón «📊 Qué ha bloqueado» del mando) lo enseña en
+  el móvil: hoy, 7 días, por canal, por dominio y lo último. Nunca sale en la tele. Para usarlo: `DNS_ACTIVO=1`, en la
+  tele DNS 1 = IP del hub y DNS 2 = la del router, y quitar el DNS privado de AdGuard (si no, la tele se salta el hub).
+  Dominios propios: uno por línea en `dns_bloquear.txt` de la carpeta de estado.
+* **Segundo sintonizador TDT por USB** (`core/sintonizador.py`): el mando dice si hay uno conectado. Servirá para ver
+  en el móvil el canal de los anuncios y saber de verdad cuándo acaban. Un RTL2832U + R820T2 recibe DVB-T, que es como
+  van hoy los canales HD (DVB-T2 solo los UHD); en la Zero 2 W hace falta un adaptador OTG, y un repartidor de antena.
+
 ### 1d. 💬 Avisos en la pantalla de la TV
 * Mensajes encima de lo que estés viendo (vuelta al canal, recordatorios, apagado nocturno).
 * Salen **en el centro de la pantalla y con letra grande** (`AVISOS_TAMANO`, `AVISOS_POSICION`). Los pinta
@@ -52,6 +94,9 @@ Diseñado específicamente para ejecutarse de forma autónoma en una **Raspberry
 * **«Ficha en la tele»** sale igual: una tarjeta en el centro con la carátula, la nota, **en qué minuto vas**, la
   sinopsis y el **reparto, la dirección, la música y quién presenta** (sin la app, se abre en el navegador de la TV,
   también centrada y grande). El reparto sale de la propia guía (líneas «· Reparto:», «· Dirección:»…).
+* **Botón del mando para la ficha:** el botón **amarillo** del mando de la tele (o el verde, o «i» dos veces: se
+  elige en «⚙️ Ajustes») enseña la ficha de lo que echan en el centro de la pantalla; pulsarlo otra vez la quita. Solo
+  cuentan las teclas del mando de verdad, no las que manda el hub.
 * **Ficha al cambiar de canal**: la primera vez que llegas a un programa sale su ficha 10 s; si vuelves al mismo
   programa no se repite y si estás zapeando rápido no sale. Se quita en el mando o con `FICHA_AL_CAMBIAR=0`.
 * Si en la TV ya estaba **TvOverlay** y no la app propia, se usa TvOverlay (en una esquina y con su letra).
@@ -115,6 +160,12 @@ panasonic-tv-ad-mute/
 │   ├── avisos_tv.py             # Avisos en la pantalla (app propia TV Hub Avisos; TvOverlay de reserva)
 │   ├── senal_guia.py            # Señal de la guía como pista de los anuncios (se apunta junto al botón)
 │   ├── ficha_tv.py              # Tarjeta de la ficha: nota, minuto, sinopsis, cartel y reparto
+│   ├── ajustes.py               # «⚙️ Ajustes» del mando (ajustes.json en la carpeta de estado)
+│   ├── rutinas.py               # Volumen por canal, modo noche, despertador y apagar al salir
+│   ├── seguir.py                # Seguir una serie: recordatorios automáticos
+│   ├── casa.py                  # Home Assistant (luces, llamada, timbre) y HyperHDR (ambilight)
+│   ├── presencia.py             # Ping al móvil y MAC de la tele
+│   ├── sintonizador.py          # Segundo sintonizador TDT por USB (preparado)
 │   ├── whatsapp_privado.py      # Carga el módulo privado de WhatsApp si está
 │   ├── media_info.py            # Fichas: TMDb, guía y Wikipedia
 │   ├── pi_salud.py              # Temperatura y alimentación de la Raspberry

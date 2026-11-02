@@ -12,6 +12,7 @@ Panasonic Google TV Ad-Mute Daemon (Raspberry Pi Zero 2 W / Linux)
 """
 
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -25,12 +26,19 @@ import avisos_tv  # noqa: E402
 import config  # noqa: E402
 import estado  # noqa: E402
 import recordatorios  # noqa: E402
+import ajustes  # noqa: E402
+import dns_hub  # noqa: E402
+import casa as casa_mod  # noqa: E402
 import ficha_tv  # noqa: E402
+import presencia  # noqa: E402
+import rutinas  # noqa: E402
+import seguir  # noqa: E402
 import senal_guia  # noqa: E402
 import vuelta as vuelta_mod  # noqa: E402
 import whatsapp_privado  # noqa: E402
 from epg import GuiaEPG  # noqa: E402
-from tv_manager import SIN_VENTANA, PanasonicTVManager  # noqa: E402
+from media_info import MediaInfoService  # noqa: E402
+from tv_manager import PAQUETE_TDT, SIN_VENTANA, PanasonicTVManager  # noqa: E402
 
 CFG = config.cargar()
 TV_IP = CFG["TV_IP"]
@@ -47,7 +55,18 @@ if not any(e.startswith("MtkTvBannerBase") for e in ETIQUETAS):
     ETIQUETAS.append("MtkTvBannerBase:D")  # rótulo del canal: de ahí sale su número
 if not any(e.startswith("MtkTvEvent_jni") for e in ETIQUETAS):
     ETIQUETAS.append("MtkTvEvent_jni:D")  # novedades de la guía del canal (posible señal de los anuncios)
+if not any(e.startswith("MtkTvAvMode_jni") for e in ETIQUETAS):
+    ETIQUETAS.append("MtkTvAvMode_jni:D")  # brillo de la imagen (fotogramas negros entre anuncios)
+_RE_LUMA = re.compile(r"ui2_avg_pixel_luma = (\d+)")
+if not any(e.startswith("TurnkeyUiMainActivity") for e in ETIQUETAS):
+    ETIQUETAS.append("TurnkeyUiMainActivity:I")  # las teclas del mando que recibe la TDT (botón de la ficha)
 GUIA_SILENCIA = CFG.get("GUIA_SILENCIA", "0").strip() == "1"
+DNS_ACTIVO = CFG.get("DNS_ACTIVO", "0").strip() == "1"
+# Tecla del mando de verdad (las que manda el hub por ADB llevan deviceId=-1 y no cuentan)
+_RE_TECLA = re.compile(r"KeyHandler keycode=\d+ event=KeyEvent \{ action=ACTION_DOWN, keyCode=(KEYCODE_\w+),"
+                       r".*?repeatCount=(\d+),.*?deviceId=(-?\d+)")
+BOTONES_FICHA = {"amarillo": ("KEYCODE_PROG_YELLOW", 1), "verde": ("KEYCODE_PROG_GREEN", 1),
+                 "info_doble": ("KEYCODE_INFO", 2)}
 FICHA_AL_CAMBIAR = CFG.get("FICHA_AL_CAMBIAR", "1").strip() == "1"
 FICHA_ESPERA = config.entero(CFG, "FICHA_ESPERA", 3)
 FICHA_SEGUNDOS = config.entero(CFG, "FICHA_SEGUNDOS", 10)
@@ -77,7 +96,19 @@ esperando_canal = ("", 0.0)     # canal al que vamos nosotros (ese cambio no es 
 aviso_vuelta_hecho = 0.0        # hora de vuelta de la que ya se ha avisado
 preavisados = set()             # recordatorios ya preavisados en pantalla
 fichas_vistas = {}              # canal de la guía -> inicio del programa cuya ficha ya se ha enseñado
+vol_canales = rutinas.VolumenCanales(estable=config.entero(CFG, "VOLUMEN_ESTABLE", rutinas.ESTABLE),
+                                     tras_cambio=config.entero(CFG, "VOLUMEN_TRAS_CAMBIO", rutinas.TRAS_CAMBIO))
+VOLUMEN_CADA = float(CFG.get("VOLUMEN_CADA", "4") or 4)
+despertador = rutinas.Despertador()
+salida = rutinas.Salida()
+casa = casa_mod.Casa()
+cine_luces = False              # luces bajadas por el modo cine
+casa_previo = {}                # último estado visto de la llamada y del timbre
+ultimo_seguir = 0.0
 cerrojo_fichas = threading.Lock()
+negros = rutinas.ContadorNegros()
+pulsaciones = []                # horas de las pulsaciones del botón de la ficha
+ficha_en_pantalla = [0.0]       # hasta cuándo se ve la ficha pedida con el mando
 
 
 REGISTRO = None                 # en el programa de Windows se escribe aquí y no en la consola del menú
@@ -102,9 +133,9 @@ def mensajero():
     return whatsapp_privado.cargar(BASE)
 
 
-def avisar(titulo, mensaje=""):
+def avisar(titulo, mensaje="", **extra):
     """Aviso en la pantalla de la TV sin parar al que llama (con la TV apagada tarda unos segundos)."""
-    threading.Thread(target=avisos.mostrar, args=(titulo, mensaje), daemon=True).start()
+    threading.Thread(target=avisos.mostrar, args=(titulo, mensaje), kwargs=extra, daemon=True).start()
 
 
 def guardar(**cambios):
@@ -171,6 +202,12 @@ def hora(t):
 def al_cambiar_canal(nombre):
     log(f"Canal: {nombre}")
     guardar(canal=nombre, canal_desde=time.time())
+    a = ajustes.leer()
+    objetivo = vol_canales.cambio_canal(nombre, rutinas.tope_noche(a))
+    if objetivo is not None and a["volumen_por_canal"]:
+        temporizador = threading.Timer(1.5, poner_volumen_del_canal, args=(nombre, objetivo))
+        temporizador.daemon = True
+        temporizador.start()
     if not (esperando_canal[0] == nombre and time.time() < esperando_canal[1]):  # los cambios del hub, no
         temporizador = threading.Timer(FICHA_ESPERA, ficha_al_cambiar, args=(nombre,))
         temporizador.daemon = True
@@ -204,9 +241,56 @@ def ficha_al_cambiar(nombre):
         if fichas_vistas.get(clave) == actual["inicio_ts"]:
             return
         fichas_vistas[clave] = actual["inicio_ts"]
-    t = ficha_tv.tarjeta(actual, nombre)
+    t = ficha_tv.tarjeta(actual, nombre, plataformas=MediaInfoService.sin_anuncios(actual["titulo_busqueda"]))
     avisos.mostrar(t["titulo"], t["mensaje"], duracion=FICHA_SEGUNDOS, detalle=t["detalle"], imagen=t["imagen"],
                    pie=t["pie"], solo_app=True)
+
+
+def tecla_del_mando(linea):
+    """El botón de la ficha (amarillo, verde o dos veces «i»): enseña la ficha; otra vez, la quita."""
+    m = _RE_TECLA.search(linea)
+    if not m or m.group(3) == "-1" or m.group(2) != "0":
+        return
+    eleccion = BOTONES_FICHA.get(ajustes.leer().get("boton_ficha"))
+    if not eleccion or m.group(1) != eleccion[0]:
+        pulsaciones.clear()
+        return
+    ahora = time.time()
+    pulsaciones.append(ahora)
+    del pulsaciones[:-eleccion[1]]
+    if len(pulsaciones) < eleccion[1] or ahora - pulsaciones[0] > 1.5:
+        return
+    pulsaciones.clear()
+    if ahora < ficha_en_pantalla[0]:
+        ficha_en_pantalla[0] = 0.0
+        threading.Thread(target=avisos.ocultar, daemon=True).start()
+    else:
+        ficha_en_pantalla[0] = ahora + FICHA_SEGUNDOS + 5
+        threading.Thread(target=ficha_ahora, daemon=True).start()
+
+
+def ficha_ahora():
+    """La ficha de lo que echan ahora en el canal que se ve, pedida con el mando."""
+    nombre = datos.get("canal") or ""
+    actual = GuiaEPG(CFG).ahora(nombre).get("actual") if nombre else None
+    if not actual:
+        avisar("Sin ficha", f"La guía no trae lo que echan en {nombre}." if nombre else "No sé qué canal estás viendo.")
+        return
+    log(f"Ficha pedida con el mando: «{actual['titulo']}» en {nombre}.")
+    ficha = MediaInfoService.buscar_info_pelicula(actual["titulo_busqueda"], epg=actual)
+    t = ficha_tv.tarjeta(actual, nombre, ficha=ficha,
+                         plataformas=MediaInfoService.sin_anuncios(actual["titulo_busqueda"]))
+    avisos.mostrar(t["titulo"], t["mensaje"], duracion=FICHA_SEGUNDOS + 5, detalle=t["detalle"], imagen=t["imagen"],
+                   pie=t["pie"], solo_app=True)
+
+
+def lo_que_se_ve():
+    """Para el DNS: el canal de la TDT o, si se está en otra app, su nombre."""
+    app = datos.get("app") or ""
+    if not app or app == PAQUETE_TDT:
+        return datos.get("canal") or ""
+    nombres = {v.split("/")[0]: k for k, v in tv.get_known_apps().items()}
+    return nombres.get(app, app)
 
 
 def avisar_vuelta_al_zapear():
@@ -231,12 +315,202 @@ def avisar_antes_de_volver():
         avisar(f"Vuelvo a {vuelta.origen} en {int(round(quedan))} s", "Si no quieres, pulsa «No volver» en el móvil.")
 
 
+def poner_volumen_del_canal(nombre, objetivo):
+    """El volumen al que dejaste este canal la última vez."""
+    if datos.get("canal") != nombre:
+        return
+    actual = tv.volumen_leer()
+    if actual is None or actual == objetivo:
+        vol_canales.pendiente = None
+        return
+    if not tv.volumen_poner(objetivo):
+        vol_canales.pendiente = None
+    else:
+        vol_canales.puesto_por_el_hub(objetivo)
+        log(f"Volumen de {nombre}: {actual} -> {objetivo} (el que tenía la última vez).")
+
+
+def revisar_volumen():
+    """Cada pocos segundos: tope del modo noche y aprender el volumen de cada canal."""
+    a = ajustes.leer()
+    if not (a["volumen_por_canal"] or a["noche_activo"]):
+        return
+    v = tv.volumen_leer()
+    if v is None:
+        return
+    if datos.get("canal") and vol_canales.canal != datos.get("canal"):
+        vol_canales.cambio_canal(datos.get("canal"))
+        vol_canales.pendiente = None  # al arrancar el servicio: no hay volumen pendiente de poner
+    tope = rutinas.tope_noche(a)
+    if tope is not None and v > tope:
+        if tv.volumen_poner(tope):
+            vol_canales.puesto_por_el_hub(tope)
+            log(f"Modo noche: volumen de {v} a {tope}.")
+        return
+    if a["volumen_por_canal"] and not (tope is not None and v >= tope):  # el tope de la noche no es tu volumen
+        aprendido = vol_canales.observar(v, silenciada=tv.silenciada_por_nosotros)
+        if aprendido is not None:
+            log(f"Volumen de {vol_canales.canal}: {aprendido} (lo pondré al volver a este canal).")
+
+
+def bucle_volumen():
+    while not parar.wait(VOLUMEN_CADA):
+        try:
+            revisar_volumen()
+        except Exception as e:  # noqa: BLE001
+            log(f"Aviso en el volumen: {e}")
+
+
+# ------------------------------------------------------- despertador, salir de casa, seguir y la casa
+def revisar_despertador():
+    a = ajustes.leer()
+    if not despertador.toca(a):
+        return
+    log(f"Despertador: enciendo la tele en el canal {a['despertador_canal']}.")
+    mac = a["tv_mac"] or tv.tv_mac or presencia.mac_de(TV_IP)
+    if mac:
+        tv.tv_mac = mac
+    tv.encender()
+    for _ in range(20):
+        if tv.esta_encendida() is True:
+            break
+        if parar.wait(2):
+            return
+    else:
+        log("Despertador: la tele no se ha encendido (¿tiene activado el encendido por red?).")
+        return
+    parar.wait(5)
+    tv.poner_canal(a["despertador_canal"], esperar=parar.wait)
+    parar.wait(3)
+    tv.volumen_poner(a["despertador_volumen"])
+    avisar("Buenos días", time.strftime("%H:%M"))
+
+
+def revisar_salida():
+    a = ajustes.leer()
+    if not (a["salir_activo"] and a["salir_ip"]):
+        salida.observar(a, True, None, None)
+        return
+    presente = presencia.responde(a["salir_ip"])
+    encendida = None if presente else tv.esta_encendida()
+    huella = None if presente else (tv.volumen_leer(), datos.get("canal"))
+    accion = salida.observar(a, presente, encendida, huella)
+    if accion == "avisar":
+        log(f"No veo el móvil ({a['salir_ip']}) desde hace {a['salir_minutos']} min: aviso antes de apagar.")
+        avisar("¿Hay alguien en casa?", "No veo tu móvil: apago la tele en 1 minuto. Si estás, cambia el volumen o de canal.",
+               duracion=20)
+    elif accion == "apagar":
+        log("Nadie en casa: apago la tele.")
+        tv.apagar()
+
+
+def programar_seguidos():
+    global ultimo_seguir
+    if time.time() - ultimo_seguir < 300:
+        return
+    ultimo_seguir = time.time()
+    guia = GuiaEPG(CFG)._datos()
+    if not guia:
+        return
+    for r in seguir.programar(guia["canales"]):
+        log(f"Sigues «{r['titulo']}»: recordatorio a las {hora(r['inicio'])[:5]} en {r['canal']}.")
+
+
+def revisar_cine():
+    global cine_luces
+    a = ajustes.leer()
+    if not (a["ha_cine"] and casa.configurada()):
+        return
+    canal = datos.get("canal") or ""
+    actual = GuiaEPG(CFG).ahora(canal).get("actual") if canal else None
+    pelicula = casa_mod.es_cine(actual) and tv.esta_encendida() is True
+    if pelicula and not cine_luces and not tv.silenciada_por_nosotros:
+        if casa.luces_cine():
+            cine_luces = True
+            log(f"Modo cine: luces bajadas para «{actual['titulo']}».")
+    elif not pelicula and cine_luces:
+        casa.luces_como_antes()
+        cine_luces = False
+        log("Modo cine: luces como estaban.")
+
+
+def luces_en_los_anuncios():
+    """En los anuncios, las luces como estaban; el modo cine las vuelve a bajar al acabar."""
+    global cine_luces
+    if cine_luces:
+        cine_luces = False
+        threading.Thread(target=casa.luces_como_antes, daemon=True).start()
+
+
+def revisar_llamada_y_timbre():
+    a = ajustes.leer()
+    if not casa.configurada():
+        return
+    if a["ha_sensor_llamada"]:
+        st = casa.estado(a["ha_sensor_llamada"])
+        antes = casa_previo.get("llamada")
+        casa_previo["llamada"] = st
+        if st == "ringing" and antes != "ringing":
+            log("Llamada en el móvil: silencio la tele.")
+            if tv.silenciar_temporal(180, al_terminar=al_terminar_silencio):
+                casa_previo["silencio_llamada"] = True
+            avisar("Te llaman al móvil", "He silenciado la tele.", duracion=10)
+        elif st == "idle" and antes in ("ringing", "offhook") and casa_previo.pop("silencio_llamada", False):
+            log("Fin de la llamada: devuelvo el sonido.")
+            al_terminar_silencio(tv.restaurar())
+    if a["ha_timbre"]:
+        st = casa.estado(a["ha_timbre"])
+        antes = casa_previo.get("timbre")
+        casa_previo["timbre"] = st
+        evento = a["ha_timbre"].startswith("event.")
+        if st and antes is not None and ((evento and st != antes) or (not evento and st == "on" and antes != "on")):
+            foto = casa.foto()
+            imagen = ""
+            if foto:
+                with open(estado.ruta("camara.jpg"), "wb") as f:
+                    f.write(foto)
+                imagen = f"http://{IP_HUB}:{config.entero(CFG, 'WEB_PORT', 8080)}/camara.jpg?t={int(time.time())}"
+            log("Llaman a la puerta.")
+            avisar("Llaman a la puerta", "", duracion=20, imagen=imagen)
+
+
+def bucle_rutinas():
+    cuenta = 0
+    while not parar.wait(3):
+        cuenta += 1
+        for cada, funcion in ((1, revisar_llamada_y_timbre), (7, revisar_despertador), (10, revisar_cine),
+                              (20, revisar_salida), (20, programar_seguidos)):
+            if cuenta % cada:
+                continue
+            try:
+                funcion()
+            except Exception as e:  # noqa: BLE001 - una rutina rota no tumba el servicio
+                log(f"Aviso en {funcion.__name__}: {e}")
+
+
+def _ip_hub():
+    import socket  # noqa: PLC0415
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
+IP_HUB = _ip_hub()
+
+
 def al_empezar_publi(motivo, manual=False):
     segundos = MUTE_DURATION
     canal = datos.get("canal")
     if vuelta is not None and vuelta.datos["duraciones"].get(canal):
         segundos = vuelta.duracion_estimada(canal)  # lo que suelen durar de verdad los cortes de ese canal
     silenciar(motivo, segundos=segundos, manual=manual)
+    luces_en_los_anuncios()
     if vuelta is not None and (manual or not estado.pausado()):
         vuelta.publi_empieza(datos.get("canal"))
         guardar(vuelta=vuelta.resumen())
@@ -275,6 +549,12 @@ def procesar_linea(linea):
     linea = linea.strip()
     if not linea:
         return
+    if "avg_pixel_luma" in linea:  # 8 por segundo: se despachan sin mirar nada más
+        m = _RE_LUMA.search(linea)
+        cerrado = negros.muestra(int(m.group(1)), datos.get("canal") or "") if m else None
+        if cerrado:
+            apuntar_negros(cerrado)
+        return
     rotulo = tv.extraer_rotulo(linea)
     if rotulo and vuelta is not None:
         if rotulo[0] == "numero":
@@ -289,6 +569,8 @@ def procesar_linea(linea):
     tipo = senal.procesar(linea)
     if tipo:
         al_ver_senal_guia(tipo)
+    if "KeyHandler" in linea:
+        tecla_del_mando(linea)
     if APRENDIZAJE:
         registrar_aprendizaje(linea)
     for patron in PATRONES:
@@ -312,6 +594,17 @@ def al_ver_senal_guia(tipo):
         al_empezar_publi("señal de la guía")
     else:
         log(f"Señal de la guía en {canal} (solo se apunta).")
+
+
+def apuntar_negros(fila):
+    ruta = estado.ruta("negros.jsonl")
+    try:
+        if os.path.exists(ruta) and os.path.getsize(ruta) > 1024 * 1024:
+            os.replace(ruta, ruta + ".1")
+        with open(ruta, "a", encoding="utf-8") as f:
+            f.write(json.dumps(fila, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
 
 
 def bucle_logcat():
@@ -347,6 +640,22 @@ def bucle_logcat():
 def bucle_latido():
     while not parar.wait(10):
         guardar(conexion=tv.estado_conexion())
+        if DNS_ACTIVO:  # qué app está delante, para apuntar con cada bloqueo dónde ha sido
+            m = re.search(r"u0 ([\w.]+)/", tv._foco_actual() or "")
+            datos["app"] = m.group(1) if m else ""
+
+
+def arrancar_dns():
+    if not DNS_ACTIVO:
+        return
+    servidor = dns_hub.ServidorDNS(puerto=config.entero(CFG, "DNS_PUERTO", 53),
+                                   superior=CFG.get("DNS_SUPERIOR") or "1.1.1.1", donde=lo_que_se_ve)
+    if servidor.arrancar():
+        log(f"DNS antirrastreo en el puerto {servidor.puerto} ({len(servidor.dominios)} dominios en la lista).")
+        guardar(dns={"activo": True, "puerto": servidor.puerto, "error": ""})
+    else:
+        log(f"DNS antirrastreo: no se ha podido abrir el puerto {servidor.puerto} ({servidor.error}).")
+        guardar(dns={"activo": False, "puerto": servidor.puerto, "error": servidor.error})
 
 
 def bucle_ordenes():
@@ -494,8 +803,10 @@ def apagar_limpio(*_):
 
 
 def arrancar_hilos():
-    guardar(conexion=tv.estado_conexion())
-    for objetivo in (bucle_latido, bucle_ordenes, bucle_apagado_nocturno, bucle_recordatorios):
+    guardar(conexion=tv.estado_conexion(), dns=None)
+    arrancar_dns()
+    for objetivo in (bucle_latido, bucle_ordenes, bucle_apagado_nocturno, bucle_recordatorios, bucle_volumen,
+                     bucle_rutinas):
         threading.Thread(target=objetivo, daemon=True).start()
 
 

@@ -24,13 +24,19 @@ else:
     BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(BASE, "core"))
 
+import ajustes  # noqa: E402
+import dns_hub  # noqa: E402
 import avisos_tv  # noqa: E402
+import casa as casa_mod  # noqa: E402
 import config  # noqa: E402
 import estado  # noqa: E402
 import ficha_tv  # noqa: E402
 import pi_salud  # noqa: E402
 import recordatorios  # noqa: E402
+import presencia  # noqa: E402
+import seguir  # noqa: E402
 import senal_guia  # noqa: E402
+import sintonizador  # noqa: E402
 import whatsapp_privado  # noqa: E402
 from epg import GuiaEPG, normalizar  # noqa: E402
 from media_info import MediaInfoService  # noqa: E402
@@ -45,6 +51,7 @@ MUTE_DURATION = config.entero(CFG, "MUTE_DURATION", 150)
 tv = PanasonicTVManager(tv_ip=TV_IP)
 privacy = PrivacyShield(tv_ip=TV_IP)
 avisos = avisos_tv.AvisosTV(tv, CFG)
+casa = casa_mod.Casa()
 
 
 def obtener_mi_ip_local():
@@ -169,6 +176,9 @@ def estado_completo() -> dict:
         "pi": en_cache("pi", pi_salud.leer, 30),
         "whatsapp": mensajero() is not None,
         "avisos_tv": {"activo": avisos.activo, "modo": en_cache("avisos", avisos.modo, 30)},
+        "casa": {"ha": casa.configurada(), "cine": ajustes.leer()["ha_cine"],
+                 "ambilight": bool(ajustes.leer()["hyperhdr_url"]), "sintonizador": sintonizador.detectados()},
+        "seguidos": seguir.lista(),
         "ficha_al_cambiar": estado.interruptor("ficha_al_cambiar", CFG.get("FICHA_AL_CAMBIAR", "1").strip() == "1"),
         "senal_guia": dict(en_cache("senal_guia", senal_guia.resumen, 15),
                            silencia=estado.senal_guia_silencia(CFG.get("GUIA_SILENCIA", "0").strip() == "1")),
@@ -192,7 +202,8 @@ def ahora_en_emision() -> dict:
     prog["numero"] = numeros_canal().get(normalizar(prog.get("canal_epg") or ""), "")
     actual = prog.get("actual")
     ficha = MediaInfoService.buscar_info_pelicula(actual["titulo_busqueda"], epg=actual) if actual else None
-    return {"epg": prog, "ficha": ficha}
+    plataformas = MediaInfoService.sin_anuncios(actual["titulo_busqueda"]) if actual else []
+    return {"epg": prog, "ficha": ficha, "sin_anuncios": plataformas}
 
 
 # ------------------------------------------------------------ recordatorios
@@ -304,7 +315,8 @@ def ficha_programa(qs) -> dict:
     if not programa:
         return {"canal": canal, "programa": None, "ficha": None}
     return {"canal": canal, "programa": programa,
-            "ficha": MediaInfoService.buscar_info_pelicula(programa["titulo_busqueda"], epg=programa)}
+            "ficha": MediaInfoService.buscar_info_pelicula(programa["titulo_busqueda"], epg=programa),
+            "sin_anuncios": MediaInfoService.sin_anuncios(programa["titulo_busqueda"])}
 
 
 def guia_canales() -> dict:
@@ -374,12 +386,59 @@ def ficha_en_tele(qs):
         datos = ahora_en_emision()
         programa, ficha = datos["epg"].get("actual"), datos.get("ficha")
         canal = datos["epg"].get("canal_epg") or datos["epg"].get("canal") or ""
-    t = ficha_tv.tarjeta(programa, canal, ficha)
+    plataformas = MediaInfoService.sin_anuncios((programa or {}).get("titulo_busqueda") or titulo)
+    t = ficha_tv.tarjeta(programa, canal, ficha, plataformas=plataformas)
     if avisos.activo and t["titulo"]:
         if avisos.mostrar(t["titulo"], t["mensaje"], duracion=FICHA_SEGUNDOS, detalle=t["detalle"], imagen=t["imagen"],
                           pie=t["pie"], solo_app=True):
             return 200, "Ficha en la tele"
     return 200, tv.show_banner_on_tv(server_ip=LOCAL_IP, port=PORT, title=titulo or t["titulo"] or None, duration=8)
+
+
+def ajustes_publicos() -> dict:
+    datos = ajustes.publico()
+    datos["mac_detectada"] = en_cache("mac_tv", lambda: presencia.mac_de(TV_IP), 600)
+    datos["url_avisos"] = (f"http://{LOCAL_IP}:{PORT}/api/aviso_casa?clave={ajustes.clave_avisos()}"
+                           "&titulo=Lavadora&texto=Ha+terminado")
+    return datos
+
+
+def privacidad() -> dict:
+    datos = dns_hub.estadisticas()
+    d = estado.leer()
+    datos["dns"] = d.get("dns") if estado.demonio_vivo(d) else None
+    datos["dns_privado"] = en_cache("dns_privado", lambda: (tv.shell("settings", "get", "global", "private_dns_mode")
+                                                          or "").strip(), 60)
+    datos["ip_hub"] = LOCAL_IP
+    return datos
+
+
+def seguir_programa(qs):
+    titulo = (qs.get("titulo", [""])[0] or "").strip()
+    canal = (qs.get("canal", [""])[0] or "").strip()
+    accion = (qs.get("accion", ["tele"])[0] or "tele").strip()
+    try:
+        s = seguir.seguir(titulo, accion, canal)
+    except ValueError as e:
+        return 400, str(e)
+    datos = GuiaEPG(CFG)._datos()
+    nuevos = seguir.programar(datos["canales"]) if datos else []
+    return 200, (f"Sigues «{s['titulo']}»" + (f": {len(nuevos)} próximos apuntados" if nuevos else
+                                             ": te avisaré cuando salga en la guía"))
+
+
+def aviso_casa(qs):
+    """Avisos que manda Home Assistant (lavadora, puerta...). Con la clave de «⚙️ Ajustes»."""
+    import hmac  # noqa: PLC0415
+
+    clave = ajustes.leer()["clave_avisos"]
+    if not clave or not hmac.compare_digest((qs.get("clave", [""])[0] or "").encode(), clave.encode()):
+        return 403, "Clave incorrecta"
+    titulo = " ".join((qs.get("titulo", [""])[0] or "").split())[:80] or "Casa"
+    texto = " ".join((qs.get("texto", [""])[0] or "").split())[:200]
+    if avisos.mostrar(titulo, texto, duracion=12):
+        return 200, "Aviso en la tele"
+    return 502, "La tele no ha mostrado el aviso"
 
 
 def poner_canal(qs):
@@ -526,6 +585,34 @@ def ejecutar_accion(cmd: str, qs: dict):
         if avisos.mostrar("Panasonic TV Hub", "Así se verán los avisos en la tele."):
             return 200, "Aviso enviado a la TV"
         return 502, "La TV no ha mostrado el aviso: pulsa «Preparar avisos»"
+    if cmd == "desde_principio":
+        if tv.esta_encendida() is not True:
+            return 409, "La tele está apagada o no responde"
+        return 200, tv.desde_el_principio()
+    if cmd == "seguir":
+        return seguir_programa(qs)
+    if cmd == "dejar_seguir":
+        if seguir.dejar((qs.get("id", [""])[0] or "").strip()):
+            return 200, "Ya no lo sigues (los recordatorios que ya estaban se quedan)"
+        return 404, "No lo seguías"
+    if cmd == "casa_probar":
+        ok, msg = casa.probar()
+        return (200 if ok else 502), msg
+    if cmd in ("luces_on", "luces_off"):
+        if not casa.configurada():
+            return 400, "Falta Home Assistant en «⚙️ Ajustes»"
+        if casa.luces_encender(cmd == "luces_on"):
+            return 200, "Luces encendidas" if cmd == "luces_on" else "Luces apagadas"
+        return 502, "Home Assistant no ha contestado (¿has puesto las luces en «⚙️ Ajustes»?)"
+    if cmd in ("cine_on", "cine_off"):
+        ajustes.guardar({"ha_cine": cmd == "cine_on"})
+        return 200, "Modo cine activado" if cmd == "cine_on" else "Modo cine desactivado"
+    if cmd in ("ambilight_on", "ambilight_off"):
+        if not ajustes.leer()["hyperhdr_url"]:
+            return 400, "Falta la dirección de HyperHDR en «⚙️ Ajustes»"
+        if casa.ambilight(cmd == "ambilight_on"):
+            return 200, "Ambilight encendido" if cmd == "ambilight_on" else "Ambilight apagado"
+        return 502, "HyperHDR no ha contestado"
     if cmd in ("ficha_cambio_on", "ficha_cambio_off"):
         estado.poner_interruptor("ficha_al_cambiar", cmd.endswith("_on"))
         return 200, ("Al cambiar de canal saldrá la ficha de lo que echan" if cmd.endswith("_on")
@@ -633,6 +720,111 @@ setTimeout(function () { window.history.back(); }, 8500);
 """
 
 # =========================================================================
+# LO QUE HA BLOQUEADO EL DNS ANTIRRASTREO (/privacidad) - en el móvil, nunca en la tele
+# =========================================================================
+HTML_PRIVACIDAD = """<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#090d16">
+<title>Qué ha bloqueado el DNS antirrastreo</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:16px;background:#090d16;color:#f8fafc;font-family:-apple-system,"Segoe UI",Roboto,sans-serif;font-size:17px}
+.c{max-width:760px;margin:0 auto}
+h1{font-size:24px;text-align:center;margin:6px 0 4px}
+.sub{text-align:center;color:#b4bfd1;margin-bottom:14px}
+.card{background:#151d30;border:1px solid #1e293b;border-radius:16px;padding:14px 16px;margin-bottom:12px}
+.cifras{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.cifra{background:#0d1424;border-radius:12px;padding:12px;text-align:center}
+.cifra b{display:block;font-size:30px;color:#7dd3fc}
+h2{font-size:19px;margin:0 0 10px;color:#7dd3fc}
+.fila{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid #1e293b;overflow-wrap:anywhere}
+.fila:last-child{border-bottom:0}
+.fila span:last-child{color:#fbbf24;font-weight:700;flex-shrink:0}
+.canal{font-size:18px;font-weight:800;margin:6px 0 4px}
+.aviso{background:#3b1414;border:1px solid #7f1d1d;color:#fecaca;border-radius:12px;padding:12px;margin-bottom:12px;line-height:1.45}
+.bien{background:#063326;border-color:#065f46;color:#a7f3d0}
+.vacio{color:#b4bfd1;text-align:center;padding:10px 0}
+.hora{color:#b4bfd1;font-size:15px}
+</style>
+</head>
+<body>
+<div class="c">
+  <h1>🛡️ DNS antirrastreo</h1>
+  <div class="sub">Qué ha bloqueado y en qué canal · últimos 7 días</div>
+  <div id="estado"></div>
+  <div class="card"><div class="cifras">
+    <div class="cifra"><b id="hoy">—</b>hoy</div>
+    <div class="cifra"><b id="total">—</b>en 7 días</div>
+  </div></div>
+  <div class="card"><h2>Por canal</h2><div id="canales"></div></div>
+  <div class="card"><h2>Lo más bloqueado</h2><div id="dominios"></div></div>
+  <div class="card"><h2>Lo último</h2><div id="ultimos"></div></div>
+</div>
+<script>
+(function () {
+  function $(id) { return document.getElementById(id); }
+  function fila(izq, der, clase) {
+    var f = document.createElement('div');
+    f.className = 'fila' + (clase ? ' ' + clase : '');
+    var a = document.createElement('span'), b = document.createElement('span');
+    a.textContent = izq; b.textContent = der;
+    f.appendChild(a); f.appendChild(b);
+    return f;
+  }
+  function vacio(caja, texto) {
+    var v = document.createElement('div'); v.className = 'vacio'; v.textContent = texto; caja.appendChild(v);
+  }
+  function pintar(d) {
+    var e = $('estado');
+    e.textContent = '';
+    var aviso = document.createElement('div');
+    if (d.dns && d.dns.activo) {
+      aviso.className = 'aviso bien';
+      aviso.textContent = 'El DNS del hub está funcionando (' + d.ip_hub + ').';
+    } else {
+      aviso.className = 'aviso';
+      aviso.textContent = 'El DNS del hub está apagado. Se enciende con DNS_ACTIVO=1 (en la Raspberry) y, en la tele, ' +
+        'Ajustes → Red → Configuración IP → Estática: DNS 1 = ' + d.ip_hub + ', DNS 2 = la IP del router.';
+    }
+    e.appendChild(aviso);
+    if (d.dns_privado && d.dns_privado !== 'off' && d.dns_privado !== 'null') {
+      var p = document.createElement('div');
+      p.className = 'aviso';
+      p.textContent = 'La tele tiene puesto un DNS privado (' + d.dns_privado + '): así se salta el del hub. ' +
+        'Quítalo con «Quitar DNS antirrastreo» en el mando.';
+      e.appendChild(p);
+    }
+    $('hoy').textContent = d.hoy; $('total').textContent = d.total;
+    var c = $('canales'); c.textContent = '';
+    if (!d.por_canal.length) { vacio(c, 'Nada bloqueado todavía'); }
+    d.por_canal.forEach(function (k) {
+      var t = document.createElement('div'); t.className = 'canal'; t.textContent = k.canal + ' · ' + k.total;
+      c.appendChild(t);
+      k.dominios.slice(0, 6).forEach(function (x) { c.appendChild(fila(x.dominio, x.veces)); });
+    });
+    var dm = $('dominios'); dm.textContent = '';
+    if (!d.dominios.length) { vacio(dm, '—'); }
+    d.dominios.slice(0, 15).forEach(function (x) { dm.appendChild(fila(x.dominio, x.veces)); });
+    var u = $('ultimos'); u.textContent = '';
+    if (!d.ultimos.length) { vacio(u, '—'); }
+    d.ultimos.slice(0, 30).forEach(function (x) { u.appendChild(fila(x.hora + ' · ' + (x.canal || '?'), x.dominio)); });
+  }
+  function cargar() {
+    fetch('/api/privacidad', {cache: 'no-store'}).then(function (r) { return r.json(); }).then(pintar)
+      .catch(function () { $('estado').textContent = 'No hay conexión con el hub'; });
+  }
+  cargar();
+  setInterval(cargar, 30000);
+})();
+</script>
+</body>
+</html>
+"""
+
+# =========================================================================
 # MANDO A DISTANCIA WEB PARA EL MÓVIL (/)
 # =========================================================================
 HTML_MOBILE_PAGE = """<!DOCTYPE html>
@@ -716,6 +908,20 @@ select{padding:6px 8px;border-radius:8px;border:1px solid #334155;background:#0b
 #toast.error{background:#b91c1c}
 .oculto{display:none!important}
 .guia-abrir{width:100%;font-size:17px;font-weight:700;min-height:52px;margin-bottom:10px}
+.sinanuncios{margin-top:8px;font-size:15px;color:#86efac}
+.sinanuncios:empty{display:none}
+.sinanuncios button{margin:6px 6px 0 0}
+.cabecera-botones{display:flex;gap:8px;justify-content:center;margin-top:10px}
+#aj-panel{position:fixed;inset:0;background:var(--bg);z-index:16;display:flex;flex-direction:column}
+#aj-panel .gp-cuerpo>*{max-width:640px}
+.aj-grupo{background:var(--card);border:1px solid var(--borde);border-radius:14px;padding:12px 14px;margin:12px auto 0}
+.aj-grupo h3{margin:0 0 8px;font-size:18px;color:#7dd3fc}
+.aj-fila{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;font-size:16px;border-bottom:1px solid #1e293b}
+.aj-fila:last-child{border-bottom:0}
+.aj-fila input[type=text],.aj-fila input[type=password],.aj-fila input[type=number],.aj-fila input[type=time]{flex:0 1 230px;min-width:0;padding:9px 10px;border-radius:10px;border:1px solid #334155;background:#0b1120;color:#fff;font-size:16px}
+.aj-fila input[type=checkbox]{width:26px;height:26px}
+.aj-nota{font-size:14px;color:var(--tenue);margin-top:6px;overflow-wrap:anywhere}
+.aj-guardar{display:block;width:100%;max-width:640px;margin:16px auto 0;font-size:18px;min-height:54px}
 body.sin-scroll{overflow:hidden}
 #guia-panel{position:fixed;inset:0;background:var(--bg);z-index:15;display:flex;flex-direction:column}
 .gp-cab{padding:12px 16px 6px;border-bottom:1px solid var(--borde);background:#0d1424}
@@ -749,6 +955,7 @@ body.sin-scroll{overflow:hidden}
       <span class="chip" id="chip-tv">TV: ...</span>
       <span class="chip" id="chip-auto">Silenciador: ...</span>
     </div>
+    <div class="cabecera-botones"><button class="b" data-local="aj-abrir">⚙️ Ajustes</button></div>
   </header>
 
   <button class="publi" data-cmd="publi" id="btn-publi">🔇 SILENCIAR ANUNCIOS</button>
@@ -770,6 +977,8 @@ body.sin-scroll{overflow:hidden}
     <div class="progreso"><div id="progreso"></div></div>
     <div class="despues" id="despues"></div>
     <button class="b oculto" id="btn-recordar-sig" data-local="recordar-sig" style="width:100%;margin-top:8px">⏰ Recordar lo siguiente</button>
+    <button class="b oculto" id="btn-principio" data-cmd="desde_principio" style="width:100%;margin-top:8px">⏮ Verlo desde el principio (botón azul, LOVEStv)</button>
+    <div id="sin-anuncios" class="sinanuncios"></div>
     <div class="aviso" id="aviso-epg"></div>
     <div class="g2" style="margin-top:10px">
       <button class="b" data-cmd="project_banner">📺 Ficha en la TV</button>
@@ -813,6 +1022,18 @@ body.sin-scroll{overflow:hidden}
     </div>
   </div>
 
+  <div class="card oculto" id="card-casa">
+    <div class="etq">CASA</div>
+    <div class="g2">
+      <button class="b" data-cmd="luces_on">💡 Encender luces</button>
+      <button class="b" data-cmd="luces_off">💡 Apagar luces</button>
+      <button class="b" data-cmd="cine_on" id="btn-cine-on">🎬 Modo cine: poner</button>
+      <button class="b oculto" data-cmd="cine_off" id="btn-cine-off">🎬 Modo cine: quitar</button>
+      <button class="b" data-cmd="ambilight_on">🌈 Ambilight</button>
+      <button class="b" data-cmd="ambilight_off">🌈 Ambilight: apagar</button>
+    </div>
+  </div>
+
   <div class="card">
     <div class="etq">RECORDATORIOS</div>
     <div class="linea" style="border-bottom:0">
@@ -829,6 +1050,7 @@ body.sin-scroll{overflow:hidden}
     </div>
     <div class="lista" id="guia-res"></div>
     <div class="lista" id="rec-lista" style="margin-top:8px"></div>
+    <div class="lista" id="seguidos" style="margin-top:8px"></div>
     <div class="aviso" id="rec-aviso"></div>
     <div class="dato" style="margin-top:10px"><span>Avisos en la pantalla</span><span id="avisos-estado">—</span></div>
     <div class="dato"><span>Ficha al cambiar de canal</span><span id="ficha-cambio">—</span></div>
@@ -899,6 +1121,7 @@ body.sin-scroll{overflow:hidden}
     </div>
     <div class="g2" style="margin-top:8px">
       <button class="b" data-cmd="privacy_dns_off">Quitar DNS antirrastreo</button>
+      <a class="b" href="/privacidad" target="_blank" rel="noopener" style="text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center">📊 Qué ha bloqueado</a>
     </div>
     <div class="despues" id="nocturno" style="margin-top:8px"></div>
   </div>
@@ -909,6 +1132,65 @@ body.sin-scroll{overflow:hidden}
     <div class="dato"><span>Alimentación</span><span id="pi-alim">—</span></div>
     <div class="dato"><span>Carga / memoria libre</span><span id="pi-carga">—</span></div>
     <div class="dato"><span>Encendida</span><span id="pi-up">—</span></div>
+    <div class="dato"><span>Sintonizador USB de TDT</span><span id="pi-tdt">—</span></div>
+  </div>
+</div>
+<div id="aj-panel" class="oculto">
+  <div class="gp-cab">
+    <div class="gp-fila">
+      <div class="gp-titulo">⚙️ Ajustes</div>
+      <button class="gp-cerrar" data-local="aj-cerrar" aria-label="Cerrar">✕</button>
+    </div>
+  </div>
+  <div class="gp-cuerpo">
+    <div class="aj-grupo"><h3>🔊 Volumen</h3>
+      <div class="aj-fila"><span>Recordar el volumen de cada canal</span><input type="checkbox" data-aj="volumen_por_canal"></div>
+      <div class="aj-fila"><span>Modo noche (volumen con tope)</span><input type="checkbox" data-aj="noche_activo"></div>
+      <div class="aj-fila"><span>Desde</span><input type="time" data-aj="noche_desde"></div>
+      <div class="aj-fila"><span>Hasta</span><input type="time" data-aj="noche_hasta"></div>
+      <div class="aj-fila"><span>Volumen máximo (0-100)</span><input type="number" min="0" max="100" data-aj="noche_tope"></div>
+    </div>
+    <div class="aj-grupo"><h3>🎛️ Botón del mando para la ficha</h3>
+      <div class="aj-fila"><span>Enseña la ficha de lo que echan (otra vez: la quita)</span>
+        <select data-aj="boton_ficha"><option value="amarillo">Amarillo</option><option value="verde">Verde</option>
+          <option value="info_doble">«i» dos veces</option><option value="no">Ninguno</option></select></div>
+    </div>
+    <div class="aj-grupo"><h3>⏰ Despertador</h3>
+      <div class="aj-fila"><span>Encender la tele sola</span><input type="checkbox" data-aj="despertador_activo"></div>
+      <div class="aj-fila"><span>Hora</span><input type="time" data-aj="despertador_hora"></div>
+      <div class="aj-fila"><span>Días (1 = lunes ... 7 = domingo)</span><input type="text" data-aj="despertador_dias"></div>
+      <div class="aj-fila"><span>Canal</span><input type="number" min="1" max="9999" data-aj="despertador_canal"></div>
+      <div class="aj-fila"><span>Volumen</span><input type="number" min="0" max="100" data-aj="despertador_volumen"></div>
+      <div class="aj-fila"><span>MAC de la tele (para encenderla por red)</span><input type="text" data-aj="tv_mac"></div>
+      <div class="aj-nota" id="aj-mac"></div>
+    </div>
+    <div class="aj-grupo"><h3>🚪 Apagar la tele si me voy</h3>
+      <div class="aj-fila"><span>Activado</span><input type="checkbox" data-aj="salir_activo"></div>
+      <div class="aj-fila"><span>IP de tu móvil</span><input type="text" data-aj="salir_ip"></div>
+      <div class="aj-fila"><span>Minutos sin ver el móvil</span><input type="number" min="5" max="240" data-aj="salir_minutos"></div>
+      <button class="b" data-local="usar-movil" style="width:100%;margin-top:8px">📱 Usar este móvil</button>
+      <div class="aj-nota">Antes de apagar avisa en la tele; si cambias el volumen o de canal en ese minuto, no la apaga.</div>
+    </div>
+    <div class="aj-grupo"><h3>🎬 ¿La tienes sin anuncios? (TMDb)</h3>
+      <div class="aj-fila"><span>Clave de TMDb</span><input type="password" data-aj="tmdb_clave" autocomplete="off"></div>
+      <div class="aj-nota">Gratis en themoviedb.org → Ajustes → API. También da la nota y la carátula de las películas.</div>
+    </div>
+    <div class="aj-grupo"><h3>🏠 Home Assistant</h3>
+      <div class="aj-fila"><span>Dirección</span><input type="text" data-aj="ha_url" placeholder="http://192.168.1.10:8123"></div>
+      <div class="aj-fila"><span>Token de larga duración</span><input type="password" data-aj="ha_token" autocomplete="off"></div>
+      <div class="aj-fila"><span>Luces (light.salon, light.tira)</span><input type="text" data-aj="ha_luces"></div>
+      <div class="aj-fila"><span>Modo cine con las películas</span><input type="checkbox" data-aj="ha_cine"></div>
+      <div class="aj-fila"><span>Brillo en modo cine (%)</span><input type="number" min="1" max="100" data-aj="ha_brillo_cine"></div>
+      <div class="aj-fila"><span>Sensor de llamadas del móvil</span><input type="text" data-aj="ha_sensor_llamada" placeholder="sensor.movil_phone_state"></div>
+      <div class="aj-fila"><span>Timbre</span><input type="text" data-aj="ha_timbre" placeholder="binary_sensor.timbre"></div>
+      <div class="aj-fila"><span>Cámara de la puerta</span><input type="text" data-aj="ha_camara" placeholder="camera.puerta"></div>
+      <button class="b" data-cmd="casa_probar" style="width:100%;margin-top:8px">🔌 Probar Home Assistant</button>
+      <div class="aj-nota" id="aj-url-avisos"></div>
+    </div>
+    <div class="aj-grupo"><h3>🌈 Ambilight (HyperHDR)</h3>
+      <div class="aj-fila"><span>Dirección de HyperHDR</span><input type="text" data-aj="hyperhdr_url" placeholder="http://192.168.1.20:8090"></div>
+    </div>
+    <button class="b ok aj-guardar" data-local="aj-guardar">💾 Guardar</button>
   </div>
 </div>
 <div id="guia-panel" class="oculto">
@@ -940,10 +1222,12 @@ body.sin-scroll{overflow:hidden}
     </div>
     <div id="hoja-sinopsis" class="sinopsis"></div>
     <div id="hoja-creditos" class="creditos"></div>
+    <div id="hoja-sin-anuncios" class="sinanuncios"></div>
     <div class="g2" style="margin-top:12px">
       <button class="b" data-local="hoja-tele">📺 Ficha en la tele</button>
       <button class="b ok" data-local="hoja-accion" id="hoja-accion">Poner</button>
     </div>
+    <button class="b" data-local="hoja-seguir" style="width:100%;margin-top:8px">⭐ Seguir este programa (cada vez que salga)</button>
   </div>
 </div>
 <div id="toast"></div>
@@ -1000,6 +1284,52 @@ body.sin-scroll{overflow:hidden}
       Math.max(1, Math.round((p.fin_ts - p.inicio_ts) / 60));
   }
 
+  function pintarSinAnuncios(caja, lista) {
+    caja.textContent = '';
+    if (!lista || !lista.length) { return; }
+    caja.appendChild(document.createTextNode('Sin anuncios en: ' + lista.map(function (p) { return p.nombre; }).join(', ')));
+    var br = document.createElement('div');
+    lista.forEach(function (p) {
+      if (!p.app) { return; }
+      var b = document.createElement('button');
+      b.className = 'b mini';
+      b.setAttribute('data-cmd', 'app_' + p.app);
+      b.textContent = '▶ Abrir ' + p.app;
+      br.appendChild(b);
+    });
+    caja.appendChild(br);
+  }
+
+  // ------------------------------------------------------------ ajustes
+  function abrirAjustes() {
+    pedir('/api/ajustes').then(function (d) {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-aj]'), function (el) {
+        var k = el.getAttribute('data-aj'), v = d[k];
+        if (el.type === 'checkbox') { el.checked = !!v; }
+        else if (el.type === 'password') { el.value = ''; el.placeholder = v ? 'puesta (vacía = no cambiarla)' : 'sin poner'; }
+        else { el.value = v === undefined || v === null ? '' : v; }
+      });
+      $('aj-mac').textContent = d.mac_detectada ? 'Detectada en la red: ' + d.mac_detectada : '';
+      $('aj-url-avisos').textContent = 'Avisos desde Home Assistant (rest_command): ' + d.url_avisos;
+      $('aj-panel').classList.remove('oculto');
+      document.body.classList.add('sin-scroll');
+    }).catch(function () { aviso('No hay conexión con el hub', true); });
+  }
+
+  function guardarAjustes() {
+    var cambios = {};
+    Array.prototype.forEach.call(document.querySelectorAll('[data-aj]'), function (el) {
+      var k = el.getAttribute('data-aj');
+      if (el.type === 'checkbox') { cambios[k] = el.checked; }
+      else if (el.type === 'password') { if (el.value) { cambios[k] = el.value; } }
+      else { cambios[k] = el.value; }
+    });
+    fetch('/api/ajustes', {method: 'POST', cache: 'no-store', body: JSON.stringify(cambios)})
+      .then(function (r) { return r.json().then(function (d) { d._http = r.status; return d; }); })
+      .then(function (d) { aviso(d.message || 'Hecho', d._http >= 400); if (d._http < 400) { estado(); } })
+      .catch(function () { aviso('No hay conexión con el hub', true); });
+  }
+
   function pintarFicha(f) {
     if (!f) { return; }
     $('titulo').textContent = f.title + (f.year ? ' (' + f.year + ')' : '');
@@ -1034,6 +1364,8 @@ body.sin-scroll{overflow:hidden}
       }
       var s = e.siguiente;
       $('despues').textContent = s ? 'Después: ' + s.titulo + ' (' + s.inicio + ')' : '';
+      $('btn-principio').classList.toggle('oculto', !(a && Date.now() / 1000 - a.inicio_ts > 180));
+      pintarSinAnuncios($('sin-anuncios'), d.sin_anuncios);
       siguienteRec = s && s.inicio_ts && e.canal_epg ?
         {canal: e.canal_epg, nombre: e.canal_epg, inicio_ts: s.inicio_ts, numero: e.numero || ''} : null;
       $('btn-recordar-sig').classList.toggle('oculto', !siguienteRec);
@@ -1201,10 +1533,15 @@ body.sin-scroll{overflow:hidden}
     $('hoja-accion').textContent = cual === 'ahora' ? '▶ Poner' : '⏰ Recordar';
     $('hoja-accion').classList.toggle('oculto', cual === 'pasado');
     pintarHoja(p, null);
+    pintarSinAnuncios($('hoja-sin-anuncios'), null);
     $('hoja-fondo').classList.add('abierta');
     var pedida = hojaActual;
     pedir('/api/ficha?canal=' + encodeURIComponent(f.canal) + '&inicio=' + encodeURIComponent(p.inicio_ts))
-      .then(function (d) { if (hojaActual === pedida && d.ficha) { pintarHoja(p, d.ficha); } })
+      .then(function (d) {
+        if (hojaActual !== pedida) { return; }
+        if (d.ficha) { pintarHoja(p, d.ficha); }
+        pintarSinAnuncios($('hoja-sin-anuncios'), d.sin_anuncios);
+      })
       .catch(function () {});
   }
 
@@ -1403,6 +1740,17 @@ body.sin-scroll{overflow:hidden}
       var MODOS = {app: 'listos: en el centro y grandes', tvoverlay: 'en una esquina (TvOverlay): pulsa «Preparar avisos»'};
       $('avisos-estado').textContent = !av.activo ? 'desactivados' : (MODOS[av.modo] || 'sin preparar: pulsa «Preparar avisos»');
       $('avisos-estado').style.color = av.activo && av.modo !== 'app' ? '#fca5a5' : '';
+      var c = d.casa || {};
+      $('card-casa').classList.toggle('oculto', !(c.ha || c.ambilight));
+      $('btn-cine-on').classList.toggle('oculto', !!c.cine);
+      $('btn-cine-off').classList.toggle('oculto', !c.cine);
+      $('pi-tdt').textContent = (c.sintonizador || []).length ? 'conectado (' + c.sintonizador.join(', ') + ')' : 'no conectado';
+      var cajaSeg = $('seguidos');
+      cajaSeg.textContent = '';
+      (d.seguidos || []).forEach(function (s) {
+        cajaSeg.appendChild(linea('⭐ Sigues: ' + s.titulo + ' (' + (ICONOS[s.accion] || '') + ')',
+                                  boton('✕', 'dejar-seguir', {'data-id': s.id})));
+      });
       $('ficha-cambio').textContent = d.ficha_al_cambiar ? 'sí (una vez por programa)' : 'no';
       $('btn-ficha-on').classList.toggle('oculto', !!d.ficha_al_cambiar);
       $('btn-ficha-off').classList.toggle('oculto', !d.ficha_al_cambiar);
@@ -1468,6 +1816,17 @@ body.sin-scroll{overflow:hidden}
     if (local === 'ficha') {
       var fp = (parrillaEntera ? filasParrilla : filasParrilla.slice(0, PARRILLA_CORTA))[+b.getAttribute('data-i')];
       abrirFicha(fp, fp && fp[b.getAttribute('data-cual')], b.getAttribute('data-cual'));
+      return;
+    }
+    if (local === 'aj-abrir') { abrirAjustes(); return; }
+    if (local === 'aj-cerrar') { $('aj-panel').classList.add('oculto'); document.body.classList.remove('sin-scroll'); return; }
+    if (local === 'aj-guardar') { guardarAjustes(); return; }
+    if (local === 'usar-movil') { orden('usar_este_movil').then(abrirAjustes); return; }
+    if (local === 'dejar-seguir') { orden('dejar_seguir', '&id=' + encodeURIComponent(b.getAttribute('data-id'))); return; }
+    if (local === 'hoja-seguir' && hojaActual) {
+      orden('seguir', '&titulo=' + encodeURIComponent(hojaActual.prog.titulo_busqueda || hojaActual.prog.titulo) +
+            '&canal=' + encodeURIComponent(hojaActual.fila.canal) + '&accion=' + $('rec-accion').value)
+        .then(listaRecordatorios);
       return;
     }
     if (local === 'guia-abrir') { abrirGuia(); return; }
@@ -1567,6 +1926,52 @@ class RemoteHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(cuerpo)
 
+    def _fichero(self, ruta, tipo):
+        try:
+            with open(ruta, "rb") as f:
+                cuerpo = f.read()
+        except OSError:
+            self._json({"status": "error", "message": "No existe"}, 404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", tipo)
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self._cabeceras_sin_cache()
+        self.end_headers()
+        self.wfile.write(cuerpo)
+
+    def do_POST(self):
+        url = urllib.parse.urlparse(self.path)
+        try:
+            # Se lee el cuerpo ANTES de contestar: si se contesta con él sin leer, Windows corta la conexión
+            largo = min(int(self.headers.get("Content-Length") or 0), 20000)
+            leido = self.rfile.read(largo) if largo > 0 else b""
+            if self._rechazar(url):
+                return
+            if orden_desde_otra_web(self.headers):
+                self._json({"status": "error", "message": "Las órdenes solo se aceptan desde la página del mando"}, 403)
+                return
+            if url.path != "/api/ajustes":
+                self._json({"status": "error", "message": "No existe"}, 404)
+                return
+            try:
+                cambios = json.loads(leido.decode("utf-8") or "{}")
+                if not isinstance(cambios, dict):
+                    raise ValueError("Se esperaba un objeto")
+                ajustes.guardar(cambios)
+            except ValueError as e:
+                self._json({"status": "error", "message": str(e)}, 400)
+                return
+            self._json({"status": "ok", "message": "Ajustes guardados", "ajustes": ajustes_publicos()})
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as e:  # noqa: BLE001
+            print(f"[Web] Error en {url.path}: {e}", flush=True)
+            try:
+                self._json({"status": "error", "message": f"Error interno: {e}"}, 500)
+            except OSError:
+                pass
+
     def _rechazar(self, url) -> bool:
         """True si la petición no viene de casa (y ya se ha contestado con un 403)."""
         if not (cliente_permitido(self.client_address[0]) and host_permitido(self.headers.get("Host"))):
@@ -1605,6 +2010,23 @@ class RemoteHandler(BaseHTTPRequestHandler):
                 self._json(parrilla())
             elif url.path == "/api/ficha":
                 self._json(ficha_programa(qs))
+            elif url.path == "/privacidad":
+                self._html(HTML_PRIVACIDAD)
+            elif url.path == "/api/privacidad":
+                self._json(privacidad())
+            elif url.path == "/api/ajustes":
+                self._json(ajustes_publicos())
+            elif url.path == "/api/aviso_casa":
+                codigo, msg = aviso_casa(qs)
+                self._json({"status": "ok" if codigo < 400 else "error", "message": msg}, codigo)
+            elif url.path == "/camara.jpg":
+                self._fichero(estado.ruta("camara.jpg"), "image/jpeg")
+            elif url.path == "/api/action" and qs.get("cmd", [""])[0] == "usar_este_movil":
+                try:
+                    ajustes.guardar({"salir_ip": self.client_address[0]})
+                    self._json({"status": "ok", "message": f"Móvil apuntado: {self.client_address[0]}"})
+                except ValueError as e:
+                    self._json({"status": "error", "message": str(e)}, 400)
             elif url.path == "/api/guia_canales":
                 self._json(guia_canales())
             elif url.path == "/api/guia_canal":

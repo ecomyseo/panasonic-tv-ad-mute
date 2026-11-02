@@ -38,7 +38,7 @@ def pie(creditos, maximo=300) -> str:
     return texto if len(texto) <= maximo else texto[:maximo - 1] + "…"
 
 
-def tarjeta(programa, canal="", ficha=None, ahora=None) -> dict:
+def tarjeta(programa, canal="", ficha=None, ahora=None, plataformas=None) -> dict:
     """Los textos de la tarjeta. `programa` en el formato público de epg.py; `ficha` la de media_info (opcional)."""
     programa = programa or {}
     ficha = ficha or {}
@@ -52,5 +52,7 @@ def tarjeta(programa, canal="", ficha=None, ahora=None) -> dict:
         "detalle": " · ".join(x for x in (nota, cuando, canal) if x),
         "mensaje": ficha.get("synopsis") or programa.get("descripcion") or "",
         "imagen": ficha.get("poster_url") or programa.get("imagen") or "",
-        "pie": pie(programa.get("creditos")),
+        "pie": " · ".join(x for x in (pie(programa.get("creditos")),
+                                      "Sin anuncios en: " + ", ".join(p["nombre"] for p in plataformas)
+                                      if plataformas else "") if x),
     }

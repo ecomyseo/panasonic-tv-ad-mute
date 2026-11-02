@@ -4,7 +4,8 @@
 #   PanasonicTVHubServicio.exe  sin ventana: el hub en segundo plano (--instalar lo pone al iniciar Windows)
 
 OCULTOS = ['tv_manager', 'media_info', 'privacy_shield', 'config', 'estado', 'epg', 'pi_salud', 'vuelta',
-           'recordatorios', 'avisos_tv', 'senal_guia', 'whatsapp_privado', 'cortafuegos_windows', 'panasonic_ad_mute',
+           'recordatorios', 'avisos_tv', 'senal_guia', 'ficha_tv', 'ajustes', 'casa', 'rutinas', 'seguir',
+           'presencia', 'sintonizador', 'dns_hub', 'whatsapp_privado', 'cortafuegos_windows', 'panasonic_ad_mute',
            'web_remote', 'menu_tv', 'app_launcher']
 
 

@@ -30,6 +30,7 @@ TV_MODEL_INFO = {
 }
 
 KEY_MUTE = 164
+KEY_AZUL = 186          # botón azul: LOVEStv (ver desde el principio) en la TDT española
 KEY_VOL_UP = 24
 KEY_VOL_DOWN = 25
 KEY_POWER = 26
@@ -263,6 +264,21 @@ class PanasonicTVManager:
     def canal_menos(self) -> str:
         self.tecla(KEY_CH_DOWN)
         return "Canal -"
+
+    def volumen_leer(self):
+        """Volumen de la tele (0-100) o None si no contesta."""
+        out = self.shell("cmd", "media_session", "volume", "--stream", "3", "--get", timeout=6)
+        m = re.search(r"volume is (\d+)", out or "")
+        return int(m.group(1)) if m else None
+
+    def volumen_poner(self, valor) -> bool:
+        valor = max(0, min(100, int(valor)))
+        self.shell("cmd", "media_session", "volume", "--stream", "3", "--set", str(valor), timeout=6)
+        return self.volumen_leer() == valor
+
+    def desde_el_principio(self) -> str:
+        self.tecla(KEY_AZUL)
+        return "Botón azul pulsado: si el canal tiene LOVEStv, sale para verlo desde el principio"
 
     def ir_a_numero(self, numero) -> bool:
         """Sintoniza un canal tecleando su número (las cifras van en una sola orden, como en el mando)."""

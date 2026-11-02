@@ -14,6 +14,7 @@ import time
 import urllib.parse
 import urllib.request
 
+import ajustes
 import config
 
 UA = {"User-Agent": "PanasonicTVHub/2.0 (SmartTV Media)"}
@@ -25,6 +26,15 @@ def _get_json(url, timeout=5):
     req = urllib.request.Request(url, headers=UA)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def clave_tmdb() -> str:
+    return ((config.cargar().get("TMDB_API_KEY") or "").strip() or (ajustes.leer().get("tmdb_clave") or "").strip())
+
+
+# Plataformas de TMDb (España) que tienen app conocida en la tele: nombre en TMDb -> nombre en el mando
+APP_DE_PLATAFORMA = {"Netflix": "Netflix", "Movistar Plus+": "Movistar+", "Movistar Plus": "Movistar+",
+                     "Atresplayer": "Atresplayer", "RTVE Play": "RTVE Play"}
 
 
 def limpiar_titulo(titulo: str) -> str:
@@ -74,8 +84,35 @@ class MediaInfoService:
         }
 
     @staticmethod
+    def sin_anuncios(titulo: str) -> list:
+        """Plataformas de suscripción donde está en España (TMDb, datos de JustWatch). [] sin clave o sin datos."""
+        clave = clave_tmdb()
+        titulo = limpiar_titulo(titulo)
+        if not clave or not titulo:
+            return []
+        guardado = _cache.get(("sin_anuncios", titulo.lower()))
+        if guardado and time.time() - guardado[0] < CACHE_SEGUNDOS:
+            return guardado[1]
+        plataformas = []
+        try:
+            datos = _get_json("https://api.themoviedb.org/3/search/multi?" + urllib.parse.urlencode(
+                {"api_key": clave, "query": titulo, "language": "es-ES", "region": "ES", "include_adult": "false"}))
+            r = next((x for x in datos.get("results", []) if x.get("media_type") in ("movie", "tv")), None)
+            if r:
+                prov = _get_json(f"https://api.themoviedb.org/3/{r['media_type']}/{int(r['id'])}/watch/providers?"
+                                 + urllib.parse.urlencode({"api_key": clave}))
+                for p in ((prov.get("results") or {}).get("ES") or {}).get("flatrate") or []:
+                    nombre = p.get("provider_name") or ""
+                    if nombre and nombre not in [x["nombre"] for x in plataformas]:
+                        plataformas.append({"nombre": nombre, "app": APP_DE_PLATAFORMA.get(nombre, "")})
+        except Exception:  # noqa: BLE001 - sin red, clave mala o cuota: no se enseña nada
+            return []
+        _cache[("sin_anuncios", titulo.lower())] = (time.time(), plataformas)
+        return plataformas
+
+    @staticmethod
     def _tmdb(titulo):
-        clave = (config.cargar().get("TMDB_API_KEY") or "").strip()
+        clave = clave_tmdb()
         if not clave:
             return None
         url = ("https://api.themoviedb.org/3/search/multi?"
