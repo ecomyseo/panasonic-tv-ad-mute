@@ -50,17 +50,22 @@ def diagnosticar_tv(ip: str):
         print("    Todas las funciones están soportadas: silenciador automático,")
         print("    mando virtual, lanzador de apps, limpiador de RAM y sleep timer.\n")
         
-        # Intentar consultar datos mediante ADB
-        res = subprocess.run(f"adb connect {ip}:5555; adb -s {ip}:5555 shell getprop ro.product.model",
-                             shell=True, capture_output=True, text=True, timeout=4)
-        for line in res.stdout.splitlines():
-            if line and not "connected" in line and not "daemon" in line:
-                print(f"    * Modelo identificado: {line.strip()}")
-        res_ver = subprocess.run(f"adb -s {ip}:5555 shell getprop ro.build.version.release",
-                                 shell=True, capture_output=True, text=True, timeout=3)
-        for line in res_ver.stdout.splitlines():
-            if line and not "connected" in line:
-                print(f"    * Versión de Android:  Android {line.strip()}")
+        # Intentar consultar datos mediante ADB (lista de argumentos, sin shell)
+        def adb(*args, timeout=6):
+            try:
+                return subprocess.run(["adb"] + list(args), capture_output=True, text=True, timeout=timeout).stdout
+            except (OSError, subprocess.TimeoutExpired):
+                return ""
+
+        adb("connect", f"{ip}:5555", timeout=8)
+        modelo = adb("-s", f"{ip}:5555", "shell", "getprop", "ro.product.model").strip()
+        version = adb("-s", f"{ip}:5555", "shell", "getprop", "ro.build.version.release").strip()
+        if modelo:
+            print(f"    * Modelo identificado: {modelo}")
+        if version:
+            print(f"    * Versión de Android:  Android {version}")
+        if not modelo:
+            print("    * ADB no responde: acepta en la TV el aviso «¿Permitir depuración?» y repite.")
 
     elif 55000 in abiertos:
         print(" -> NIVEL DE COMPATIBILIDAD: COMPATIBLE (PANASONIC VIERA)")

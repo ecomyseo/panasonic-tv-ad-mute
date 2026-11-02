@@ -1,0 +1,101 @@
+#!/bin/bash
+# Panasonic TV Hub - orden de control en la Raspberry Pi (la instala install.sh en /usr/local/bin)
+DESTINO="@DESTINO@"
+USUARIO="@USUARIO@"
+CONF="/etc/panasonic-tv-hub/config.env"
+ESTADO="/var/lib/panasonic-tv-hub"
+SERVICIOS="panasonic-mute panasonic-web"
+
+# ADB guarda su llave por usuario: todo lo que hable con la TV va con el usuario de los servicios
+como_usuario() {
+  if [ "$(id -un)" = "$USUARIO" ]; then "$@"; else sudo -u "$USUARIO" -H "$@"; fi
+}
+
+tv_ip() {
+  grep -E '^TV_IP=' "$CONF" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'"
+}
+
+ayuda() {
+  cat <<'TEXTO'
+Uso: tvhub [orden]
+
+  (sin orden)   Menú interactivo
+  estado        Estado de los servicios y de la conexión con la TV
+  logs          Registro en directo (Ctrl+C para salir)
+  parear        Conecta con la TV y espera a que aceptes «Permitir depuración»
+  config        Edita la configuración y reinicia los servicios
+  reiniciar     Reinicia los servicios
+  parar         Para los servicios
+  arrancar      Arranca los servicios
+  epg           Descarga ahora la guía de programación
+  aprendizaje   Muestra en directo lo que la TV registra (con MODO_APRENDIZAJE=1)
+  diagnostico   Comprueba qué puertos de control tiene abiertos la TV
+  desinstalar   Quita el hub (conserva la configuración)
+TEXTO
+}
+
+case "${1:-menu}" in
+  menu)
+    como_usuario python3 "$DESTINO/menu_tv.py"
+    ;;
+  estado)
+    systemctl --no-pager --lines=5 status $SERVICIOS
+    echo
+    echo "Conexión ADB con la TV ($(tv_ip)):"
+    como_usuario adb devices | sed 1d
+    ;;
+  logs|registro)
+    journalctl -u panasonic-mute -u panasonic-web -f -n 50
+    ;;
+  parear)
+    IP="$(tv_ip)"
+    como_usuario adb disconnect "$IP" >/dev/null 2>&1
+    como_usuario adb connect "$IP"
+    echo "Si en la TV aparece «¿Permitir la depuración?», marca «Permitir siempre» y pulsa Aceptar."
+    st=""
+    for _ in $(seq 1 30); do
+      st="$(como_usuario adb devices | awk -v ip="$IP" '$1==ip{print $2}')"
+      if [ "$st" = "device" ]; then
+        echo "TV conectada y autorizada."
+        sudo systemctl restart $SERVICIOS
+        exit 0
+      fi
+      sleep 2
+    done
+    echo "La TV aún no está autorizada (estado: ${st:-sin conexión}). Comprueba que esté encendida y repite: tvhub parear"
+    exit 1
+    ;;
+  config)
+    sudo nano "$CONF" && sudo systemctl restart $SERVICIOS && echo "Servicios reiniciados con la nueva configuración."
+    ;;
+  reiniciar)
+    sudo systemctl restart $SERVICIOS && echo "Servicios reiniciados."
+    ;;
+  parar)
+    sudo systemctl stop $SERVICIOS
+    ;;
+  arrancar)
+    sudo systemctl start $SERVICIOS
+    ;;
+  epg)
+    como_usuario python3 "$DESTINO/core/epg.py" --actualizar
+    ;;
+  aprendizaje)
+    echo "Esperando líneas en $ESTADO/aprendizaje.log (activa MODO_APRENDIZAJE=1 con: tvhub config)"
+    tail -n 30 -F "$ESTADO/aprendizaje.log"
+    ;;
+  diagnostico)
+    IP="$(tv_ip)"
+    como_usuario python3 "$DESTINO/core/detectar_tv.py" "${IP%%:*}"
+    ;;
+  desinstalar)
+    sudo bash "$DESTINO/raspberry_pi/uninstall.sh"
+    ;;
+  ayuda|-h|--help)
+    ayuda
+    ;;
+  *)
+    ayuda
+    exit 1
+    ;;
+esac

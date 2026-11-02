@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TV Hub Avisos: pinta los avisos del Panasonic TV Hub en el CENTRO de la pantalla y con letra grande.
+  No tiene icono ni pantalla propia, y solo obedece al ADB: el receptor exige el permiso DUMP, que tiene
+  el usuario «shell» del ADB y no puede tener ninguna app de la tienda.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="es.gmartos.tvhub.avisos">
+
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
+    <application
+        android:label="TV Hub Avisos"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="true">
+        <receiver
+            android:name=".Receptor"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="es.gmartos.tvhub.AVISO" />
+                <action android:name="es.gmartos.tvhub.OCULTAR" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

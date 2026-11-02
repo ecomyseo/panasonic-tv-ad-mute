@@ -1,15 +1,18 @@
 [Unit]
-Description=Panasonic Google TV Ad-Mute Daemon
+Description=Panasonic TV Hub - silenciador automático de publicidad
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/opt/panasonic-tv-ad-mute/raspberry_pi
-ExecStart=/usr/bin/python3 /opt/panasonic-tv-ad-mute/raspberry_pi/panasonic_ad_mute.py
+User=@USUARIO@
+WorkingDirectory=@DESTINO@
+Environment=PYTHONUNBUFFERED=1
+StateDirectory=panasonic-tv-hub
+ExecStart=/usr/bin/python3 @DESTINO@/raspberry_pi/panasonic_ad_mute.py
 Restart=always
 RestartSec=10
+TimeoutStopSec=20
 StandardOutput=journal
 StandardError=journal
 

@@ -1,0 +1,19 @@
+[Unit]
+Description=Panasonic TV Hub - mando web para el móvil
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USUARIO@
+WorkingDirectory=@DESTINO@
+Environment=PYTHONUNBUFFERED=1
+StateDirectory=panasonic-tv-hub
+ExecStart=/usr/bin/python3 @DESTINO@/web_remote.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

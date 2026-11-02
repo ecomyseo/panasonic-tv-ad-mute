@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Panasonic Google TV Control Suite - Menú interactivo
+Panasonic Google TV Control Suite - Menu interactivo
 Compatible con Raspberry Pi Zero 2 W y Windows.
 """
 
@@ -8,15 +9,54 @@ import sys
 import os
 import time
 
-# Asegurar importación de core
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "core")))
-from tv_manager import PanasonicTVManager
-from media_info import MediaInfoService
-from privacy_shield import PrivacyShield
+# Fix encoding para Windows (terminal cp1252 no soporta emojis sin esto)
+if sys.platform == 'win32' and sys.stdout is not None:  # sin consola (servicio en segundo plano) no hay nada que ajustar
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except AttributeError:
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
-TV_IP = os.getenv("TV_IP", "192.168.1.132:5555")
+# Asegurar importacion de core
+if getattr(sys, 'frozen', False):
+    _base = sys._MEIPASS
+else:
+    _base = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _base)
+sys.path.insert(0, os.path.join(_base, 'core'))
+
+import atexit  # noqa: E402
+import socket  # noqa: E402
+
+import config  # noqa: E402
+import estado  # noqa: E402
+from tv_manager import PanasonicTVManager  # noqa: E402
+from media_info import MediaInfoService  # noqa: E402
+from privacy_shield import PrivacyShield  # noqa: E402
+
+CFG = config.cargar()
+TV_IP = CFG["TV_IP"]
+MUTE_DURATION = config.entero(CFG, "MUTE_DURATION", 150)
 tv = PanasonicTVManager(tv_ip=TV_IP)
 privacy = PrivacyShield(tv_ip=TV_IP)
+
+
+@atexit.register
+def _al_salir():
+    # Si este menú quitó el sonido, lo devuelve al cerrarse
+    if tv.silenciada_por_nosotros:
+        tv.restaurar()
+
+
+def puerto_ocupado(puerto: int) -> bool:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(1)
+    try:
+        return s.connect_ex(("127.0.0.1", puerto)) == 0
+    finally:
+        s.close()
 
 def clear():
     os.system("cls" if os.name == "nt" else "clear")
@@ -24,7 +64,10 @@ def clear():
 def banner():
     print("=" * 68)
     print("  PANASONIC GOOGLE TV SMART HUB & EPG (Raspberry Pi & Windows)")
-    print(f"  Objetivo: {tv.tv_ip} | Canal actual: {tv.get_current_channel()}")
+    d = estado.leer()
+    canal = d.get("canal") if estado.demonio_vivo(d) and d.get("canal") else tv.get_current_channel().get("name", "?")
+    auto = "en pausa" if estado.pausado() else ("activo" if estado.demonio_vivo(d) else "parado")
+    print(f"  TV: {tv.tv_ip} | Canal: {canal} | Silenciador automático: {auto}")
     print("=" * 68)
 
 def menu_mando():
@@ -33,7 +76,7 @@ def menu_mando():
         banner()
         print("--- MANDO A DISTANCIA VIRTUAL ---")
         print(" [W] Arriba     [S] Abajo      [A] Izquierda   [D] Derecha")
-        print(" [E] OK/Enter   [B] Volver     [H] Home        [P] Power (Standby)")
+        print(" [E] OK/Enter   [B] Volver     [H] Home        [P] Apagar (standby)")
         print(" [+] Vol +      [-] Vol -      [M] Mute        [Q] Volver al menú")
         print("-" * 68)
         tecla = input("Pulsa una tecla y Enter: ").strip().lower()
@@ -54,7 +97,7 @@ def menu_mando():
         elif tecla == "h":
             tv.key_home()
         elif tecla == "p":
-            tv.key_power()
+            tv.apagar()
         elif tecla in ("+", "v+"):
             tv.volume_up()
         elif tecla in ("-", "v-"):
@@ -176,15 +219,22 @@ def main():
         print(" 7. ⌨️  Escribir texto / contraseñas en la TV desde teclado")
         print(" 8. ⏰ Temporizador de apagado inteligente (Sleep Timer)")
         print(" 9. 🧹 Acelerar y optimizar memoria RAM de la TV")
-        print(" 10. 🌐 Iniciar Mando Web Móvil (puerto 8080)")
+        print(" 10. 🌐 Mando web para el móvil")
+        print(" 11. ⏯  Pausar / reanudar el silenciador automático")
+        print(" 12. ⏻  Encender / apagar la TV")
         print(" 0. Salir")
         print("=" * 68)
         op = input("Elige una opción: ").strip()
 
         if op == "1":
-            print("\nSilenciando televisión...")
-            tv.toggle_mute()
-            time.sleep(1)
+            if estado.demonio_vivo():
+                estado.poner_orden("silenciar")
+                print(f"\n[OK] El servicio silencia la TV durante {MUTE_DURATION} s.")
+            elif tv.silenciar_temporal(MUTE_DURATION):
+                print(f"\n[OK] TV silenciada {MUTE_DURATION} s (el sonido vuelve solo; no cierres el menú).")
+            else:
+                print("\n[Aviso] La TV ya estaba silenciada.")
+            time.sleep(1.5)
         elif op == "2":
             menu_privacidad()
         elif op == "3":
@@ -210,8 +260,21 @@ def main():
             print(f"[OK] {res}")
             time.sleep(1.5)
         elif op == "10":
-            web_script = os.path.join(os.path.dirname(__file__), "web_remote.py")
-            os.system(f"python \"{web_script}\"")
+            puerto = config.entero(CFG, "WEB_PORT", 8080)
+            if puerto_ocupado(puerto):
+                print(f"\n[OK] El mando web ya está en marcha: abre http://<IP de este equipo>:{puerto} en el móvil.")
+                input("\nPresiona Enter para continuar...")
+            else:
+                import web_remote
+                web_remote.main()
+        elif op == "11":
+            estado.pausar(not estado.pausado())
+            print("\n[OK] Silenciador automático " + ("en pausa." if estado.pausado() else "activo."))
+            time.sleep(1.5)
+        elif op == "12":
+            enc = tv.esta_encendida()
+            print("\n" + (tv.apagar() if enc else tv.encender()))
+            time.sleep(1.5)
         elif op == "0":
             break
 
