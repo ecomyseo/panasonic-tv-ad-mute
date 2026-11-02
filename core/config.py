@@ -36,6 +36,9 @@ DEFECTOS = {
     "AVISOS_POSICION": "centro",
     "RECORDATORIO_ANTELACION": "60",
     "MODO_APRENDIZAJE": "0",
+    "FICHA_AL_CAMBIAR": "1",  # ficha de lo que echan la primera vez que llegas a ese programa
+    "FICHA_ESPERA": "3",
+    "FICHA_SEGUNDOS": "10",
     "GUIA_SILENCIA": "0",    # 1 = silenciar con la señal de la guía (sin confirmar: de fábrica solo se apunta)
     "GUIA_TRAS_ZAPEO": "20",
     "GUIA_CALMA": "480",

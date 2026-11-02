@@ -25,9 +25,11 @@ import avisos_tv  # noqa: E402
 import config  # noqa: E402
 import estado  # noqa: E402
 import recordatorios  # noqa: E402
+import ficha_tv  # noqa: E402
 import senal_guia  # noqa: E402
 import vuelta as vuelta_mod  # noqa: E402
 import whatsapp_privado  # noqa: E402
+from epg import GuiaEPG  # noqa: E402
 from tv_manager import SIN_VENTANA, PanasonicTVManager  # noqa: E402
 
 CFG = config.cargar()
@@ -46,6 +48,9 @@ if not any(e.startswith("MtkTvBannerBase") for e in ETIQUETAS):
 if not any(e.startswith("MtkTvEvent_jni") for e in ETIQUETAS):
     ETIQUETAS.append("MtkTvEvent_jni:D")  # novedades de la guía del canal (posible señal de los anuncios)
 GUIA_SILENCIA = CFG.get("GUIA_SILENCIA", "0").strip() == "1"
+FICHA_AL_CAMBIAR = CFG.get("FICHA_AL_CAMBIAR", "1").strip() == "1"
+FICHA_ESPERA = config.entero(CFG, "FICHA_ESPERA", 3)
+FICHA_SEGUNDOS = config.entero(CFG, "FICHA_SEGUNDOS", 10)
 APRENDIZAJE = CFG.get("MODO_APRENDIZAJE", "0").strip() == "1"
 APAGADO_NOCTURNO = CFG.get("APAGADO_NOCTURNO", "").strip()
 APRENDIZAJE_MAX_BYTES = 5 * 1024 * 1024
@@ -71,6 +76,8 @@ ultimo_numero = ("", 0.0)       # último número de canal visto en el rótulo d
 esperando_canal = ("", 0.0)     # canal al que vamos nosotros (ese cambio no es un zapeo del usuario)
 aviso_vuelta_hecho = 0.0        # hora de vuelta de la que ya se ha avisado
 preavisados = set()             # recordatorios ya preavisados en pantalla
+fichas_vistas = {}              # canal de la guía -> inicio del programa cuya ficha ya se ha enseñado
+cerrojo_fichas = threading.Lock()
 
 
 REGISTRO = None                 # en el programa de Windows se escribe aquí y no en la consola del menú
@@ -164,6 +171,10 @@ def hora(t):
 def al_cambiar_canal(nombre):
     log(f"Canal: {nombre}")
     guardar(canal=nombre, canal_desde=time.time())
+    if not (esperando_canal[0] == nombre and time.time() < esperando_canal[1]):  # los cambios del hub, no
+        temporizador = threading.Timer(FICHA_ESPERA, ficha_al_cambiar, args=(nombre,))
+        temporizador.daemon = True
+        temporizador.start()
     if vuelta is None:
         return
     propio = esperando_canal[0] == nombre and time.time() < esperando_canal[1]
@@ -174,6 +185,28 @@ def al_cambiar_canal(nombre):
             al_terminar_silencio(tv.restaurar())
         avisar_vuelta_al_zapear()
     guardar(vuelta=vuelta.resumen())
+
+
+def ficha_al_cambiar(nombre):
+    """Ficha de lo que echan, la primera vez que llegas a ese programa. Si ya te has ido (zapeo rápido), nada."""
+    if datos.get("canal") != nombre or not estado.interruptor("ficha_al_cambiar", FICHA_AL_CAMBIAR):
+        return
+    try:
+        epg = GuiaEPG(CFG).ahora(nombre)
+    except Exception as e:  # noqa: BLE001 - una guía rota no tumba el servicio
+        log(f"Aviso en la ficha al cambiar de canal: {e}")
+        return
+    actual = epg.get("actual")
+    if not actual:
+        return
+    clave = epg.get("canal_epg") or nombre
+    with cerrojo_fichas:
+        if fichas_vistas.get(clave) == actual["inicio_ts"]:
+            return
+        fichas_vistas[clave] = actual["inicio_ts"]
+    t = ficha_tv.tarjeta(actual, nombre)
+    avisos.mostrar(t["titulo"], t["mensaje"], duracion=FICHA_SEGUNDOS, detalle=t["detalle"], imagen=t["imagen"],
+                   pie=t["pie"], solo_app=True)
 
 
 def avisar_vuelta_al_zapear():

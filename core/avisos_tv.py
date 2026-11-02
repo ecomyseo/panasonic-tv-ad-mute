@@ -75,23 +75,24 @@ class AvisosTV:
             return False
 
     # ------------------------------------------------------------ enseñar
-    def mostrar(self, titulo, mensaje="", duracion=None, detalle="", imagen="", solo_app=False) -> bool:
+    def mostrar(self, titulo, mensaje="", duracion=None, detalle="", imagen="", solo_app=False, pie="") -> bool:
         """Primero la app propia (una orden ADB); si no está o no puede, TvOverlay (salvo con solo_app)."""
         if not self.activo:
             return False
         segundos = int(duracion or self.duracion)
-        if self._mostrar_app(titulo, mensaje, segundos, detalle=detalle, imagen=imagen):
+        if self._mostrar_app(titulo, mensaje, segundos, detalle=detalle, imagen=imagen, pie=pie):
             return True
         if solo_app:
             return False
         texto = " · ".join(t for t in (_una_linea(detalle), _una_linea(mensaje)) if t)
         return self._mostrar_tvoverlay(titulo, texto, segundos)
 
-    def _mostrar_app(self, titulo, mensaje, segundos, detalle="", imagen="") -> bool:
+    def _mostrar_app(self, titulo, mensaje, segundos, detalle="", imagen="", pie="") -> bool:
         orden = ["am", "broadcast", "-f", "32", "-n", RECEPTOR, "-a", ACCION,
                  "--ei", "segundos", str(int(segundos)), "--ei", "tamano", str(self.tamano),
                  "--es", "posicion", self.posicion]
-        for clave, valor in (("titulo", titulo), ("detalle", detalle), ("mensaje", mensaje), ("imagen", imagen)):
+        for clave, valor in (("titulo", titulo), ("detalle", detalle), ("mensaje", mensaje), ("imagen", imagen),
+                             ("pie", pie)):
             valor = _una_linea(valor)
             if valor:
                 orden += ["--es", clave, shlex.quote(valor)]

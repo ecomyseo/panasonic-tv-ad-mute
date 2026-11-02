@@ -49,8 +49,11 @@ Diseñado específicamente para ejecutarse de forma autónoma en una **Raspberry
   **TV Hub Avisos** (`avisos_app/`), una app propia de 17 KB sin icono ni pantalla que solo obedece al ADB: no coge el
   mando ni el foco y se va sola. En el móvil, **«Preparar avisos»** la instala y le da el permiso de mostrarse encima
   de otras apps; **«Probar un aviso»** lo comprueba. Se quita como cualquier app.
-* **«Ficha en la tele»** sale igual: una tarjeta en el centro con la carátula, la nota, la hora y la sinopsis, sin
-  dejar de ver el canal (sin la app, se abre en el navegador de la TV, también centrada y grande).
+* **«Ficha en la tele»** sale igual: una tarjeta en el centro con la carátula, la nota, **en qué minuto vas**, la
+  sinopsis y el **reparto, la dirección, la música y quién presenta** (sin la app, se abre en el navegador de la TV,
+  también centrada y grande). El reparto sale de la propia guía (líneas «· Reparto:», «· Dirección:»…).
+* **Ficha al cambiar de canal**: la primera vez que llegas a un programa sale su ficha 10 s; si vuelves al mismo
+  programa no se repite y si estás zapeando rápido no sale. Se quita en el mando o con `FICHA_AL_CAMBIAR=0`.
 * Si en la TV ya estaba **TvOverlay** y no la app propia, se usa TvOverlay (en una esquina y con su letra).
 * No toca el sistema de la TV. Se apagan con `AVISOS_EN_TV=0`. La app se compila con
   `python avisos_app/construir_apk.py` (SDK de Android + JDK 17; la clave de firma vive fuera del proyecto).
@@ -111,6 +114,7 @@ panasonic-tv-ad-mute/
 │   ├── recordatorios.py         # Recordatorios de la guía (uno por fichero, se disparan una sola vez)
 │   ├── avisos_tv.py             # Avisos en la pantalla (app propia TV Hub Avisos; TvOverlay de reserva)
 │   ├── senal_guia.py            # Señal de la guía como pista de los anuncios (se apunta junto al botón)
+│   ├── ficha_tv.py              # Tarjeta de la ficha: nota, minuto, sinopsis, cartel y reparto
 │   ├── whatsapp_privado.py      # Carga el módulo privado de WhatsApp si está
 │   ├── media_info.py            # Fichas: TMDb, guía y Wikipedia
 │   ├── pi_salud.py              # Temperatura y alimentación de la Raspberry

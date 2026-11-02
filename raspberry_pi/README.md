@@ -101,6 +101,8 @@ Fichero `/etc/panasonic-tv-hub/config.env` (`tvhub config`). Lo más habitual:
 | `AVISOS_TAMANO` | Tamaño de la letra del título del aviso, de 18 a 96 (40) |
 | `AVISOS_POSICION` | `centro`, `arriba` o `abajo` (`centro`) |
 | `TVOVERLAY_URL` | Solo si se usa TvOverlay en lugar de la app propia (vacío = la IP de la TV, puerto 5001) |
+| `FICHA_AL_CAMBIAR` | `1` = al cambiar de canal, la ficha de lo que echan, una vez por programa (1) |
+| `FICHA_ESPERA` / `FICHA_SEGUNDOS` | Segundos en el canal antes de enseñarla (3) y que se ve (10) |
 | `GUIA_SILENCIA` | `1` = silenciar con la señal de la guía; `0` = solo apuntarla junto a tus pulsaciones (0) |
 | `GUIA_TRAS_ZAPEO` / `GUIA_CALMA` | Segundos tras zapear en que no cuenta (20) y de calma para un corte nuevo (480) |
 | `RECORDATORIO_ANTELACION` | Segundos antes de empezar el programa en que salta un recordatorio (60) |

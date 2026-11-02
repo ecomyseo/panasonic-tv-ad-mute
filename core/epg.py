@@ -29,6 +29,21 @@ VENTANA_HORAS = 30  # la guía completa del mando enseña hasta mañana a esta h
 _RE_NOTA = re.compile(r"★\s*(\d+(?:[.,]\d+)?)\s*/\s*10")
 _RE_ANIO = re.compile(r"\b(19\d\d|20\d\d)\b")
 _RE_TEMPORADA = re.compile(r"\s+T\d+(\s*E\d+)?\b.*$")
+_RE_DATO = re.compile(r"^\s*·\s*([^:·]{2,30}):\s*(.+?)\s*$")
+_RE_GENERO = re.compile(r"^\([^)]{1,80}\)\s*")
+
+
+def partir_descripcion(desc: str):
+    """La guía (datos de Movistar+) pone al final «· Reparto: ...», «· Dirección: ...», «· Música: ...».
+    Devuelve (sinopsis limpia, {dato: valor}); el «(Series,Drama)» del principio ya está en la categoría."""
+    lineas, creditos = [], {}
+    for linea in (desc or "").splitlines():
+        m = _RE_DATO.match(linea)
+        if m:
+            creditos[m.group(1).strip()] = m.group(2).strip().rstrip(".")[:400]
+        else:
+            lineas.append(linea)
+    return _RE_GENERO.sub("", " ".join(" ".join(lineas).split())), creditos
 
 
 def normalizar(nombre: str) -> str:
@@ -112,7 +127,7 @@ class GuiaEPG:
         nota = _RE_NOTA.search(sub)
         anio = _RE_ANIO.search(sub)
         icono = elem.find("icon")
-        desc = texto("desc")
+        desc, creditos = partir_descripcion(texto("desc"))
         return {
             "i": inicio,
             "f": fin,
@@ -123,6 +138,7 @@ class GuiaEPG:
             "img": icono.get("src", "") if icono is not None else "",
             "nota": float(nota.group(1).replace(",", ".")) if nota else None,
             "anio": anio.group(1) if anio else "",
+            "x": creditos,
         }
 
     # ---------------------------------------------------------- consulta
@@ -173,6 +189,7 @@ class GuiaEPG:
             "imagen": p.get("img", ""),
             "nota": p.get("nota"),
             "anio": p.get("anio", ""),
+            "creditos": p.get("x") or {},
         }
 
     def ahora(self, nombre_canal: str) -> dict:

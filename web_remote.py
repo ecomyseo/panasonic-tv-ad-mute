@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.join(BASE, "core"))
 import avisos_tv  # noqa: E402
 import config  # noqa: E402
 import estado  # noqa: E402
+import ficha_tv  # noqa: E402
 import pi_salud  # noqa: E402
 import recordatorios  # noqa: E402
 import senal_guia  # noqa: E402
@@ -168,6 +169,7 @@ def estado_completo() -> dict:
         "pi": en_cache("pi", pi_salud.leer, 30),
         "whatsapp": mensajero() is not None,
         "avisos_tv": {"activo": avisos.activo, "modo": en_cache("avisos", avisos.modo, 30)},
+        "ficha_al_cambiar": estado.interruptor("ficha_al_cambiar", CFG.get("FICHA_AL_CAMBIAR", "1").strip() == "1"),
         "senal_guia": dict(en_cache("senal_guia", senal_guia.resumen, 15),
                            silencia=estado.senal_guia_silencia(CFG.get("GUIA_SILENCIA", "0").strip() == "1")),
     }
@@ -372,17 +374,12 @@ def ficha_en_tele(qs):
         datos = ahora_en_emision()
         programa, ficha = datos["epg"].get("actual"), datos.get("ficha")
         canal = datos["epg"].get("canal_epg") or datos["epg"].get("canal") or ""
-    ficha = ficha or {}
-    nombre = ficha.get("title") or (programa or {}).get("titulo") or titulo
-    if avisos.activo and nombre:
-        horario = f"{programa['inicio']}–{programa['fin']}" if programa else ""
-        detalle = " · ".join(x for x in (ficha.get("rating"), horario, canal) if x)
-        sinopsis = ficha.get("synopsis") or (programa or {}).get("descripcion") or ""
-        cartel = ficha.get("poster_url") or (programa or {}).get("imagen") or ""
-        nombre += f" ({ficha['year']})" if ficha.get("year") else ""
-        if avisos.mostrar(nombre, sinopsis, duracion=FICHA_SEGUNDOS, detalle=detalle, imagen=cartel, solo_app=True):
+    t = ficha_tv.tarjeta(programa, canal, ficha)
+    if avisos.activo and t["titulo"]:
+        if avisos.mostrar(t["titulo"], t["mensaje"], duracion=FICHA_SEGUNDOS, detalle=t["detalle"], imagen=t["imagen"],
+                          pie=t["pie"], solo_app=True):
             return 200, "Ficha en la tele"
-    return 200, tv.show_banner_on_tv(server_ip=LOCAL_IP, port=PORT, title=titulo or nombre or None, duration=8)
+    return 200, tv.show_banner_on_tv(server_ip=LOCAL_IP, port=PORT, title=titulo or t["titulo"] or None, duration=8)
 
 
 def poner_canal(qs):
@@ -529,6 +526,10 @@ def ejecutar_accion(cmd: str, qs: dict):
         if avisos.mostrar("Panasonic TV Hub", "Así se verán los avisos en la tele."):
             return 200, "Aviso enviado a la TV"
         return 502, "La TV no ha mostrado el aviso: pulsa «Preparar avisos»"
+    if cmd in ("ficha_cambio_on", "ficha_cambio_off"):
+        estado.poner_interruptor("ficha_al_cambiar", cmd.endswith("_on"))
+        return 200, ("Al cambiar de canal saldrá la ficha de lo que echan" if cmd.endswith("_on")
+                     else "Al cambiar de canal ya no saldrá la ficha")
     if cmd in ("guia_silencia_on", "guia_silencia_off"):
         estado.activar_senal_guia(cmd.endswith("_on"))
         return 200, ("Silenciará con la señal de la guía" if cmd.endswith("_on")
@@ -676,6 +677,10 @@ button{font:inherit;cursor:pointer}
 .progreso{height:4px;background:#1e293b;border-radius:2px;margin:8px 0 4px;overflow:hidden}
 .progreso div{height:100%;background:#38bdf8;width:0}
 .despues{font-size:14px;color:var(--tenue)}
+.creditos{margin-top:10px;font-size:15px;line-height:1.45;color:var(--texto)}
+.creditos:empty{display:none}
+.creditos div{padding:3px 0;border-bottom:1px solid #1e293b}
+.creditos b{color:#7dd3fc;font-weight:700}
 .fila{display:flex;gap:8px;margin-top:10px}
 input[type=text]{flex:1;min-width:0;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#0b1120;color:#fff;font-size:14px}
 .dato{display:flex;justify-content:space-between;font-size:13px;padding:3px 0;border-bottom:1px solid #1e293b}
@@ -761,6 +766,7 @@ body.sin-scroll{overflow:hidden}
         <div id="sinopsis" class="sinopsis"></div>
       </div>
     </div>
+    <div id="creditos" class="creditos"></div>
     <div class="progreso"><div id="progreso"></div></div>
     <div class="despues" id="despues"></div>
     <button class="b oculto" id="btn-recordar-sig" data-local="recordar-sig" style="width:100%;margin-top:8px">⏰ Recordar lo siguiente</button>
@@ -825,9 +831,12 @@ body.sin-scroll{overflow:hidden}
     <div class="lista" id="rec-lista" style="margin-top:8px"></div>
     <div class="aviso" id="rec-aviso"></div>
     <div class="dato" style="margin-top:10px"><span>Avisos en la pantalla</span><span id="avisos-estado">—</span></div>
+    <div class="dato"><span>Ficha al cambiar de canal</span><span id="ficha-cambio">—</span></div>
     <div class="g2" style="margin-top:8px">
       <button class="b" data-cmd="avisos_preparar">📲 Preparar avisos</button>
       <button class="b" data-cmd="avisos_probar">💬 Probar un aviso</button>
+      <button class="b oculto" data-cmd="ficha_cambio_on" id="btn-ficha-on">🎬 Ficha al cambiar: poner</button>
+      <button class="b oculto" data-cmd="ficha_cambio_off" id="btn-ficha-off">🎬 Ficha al cambiar: quitar</button>
     </div>
   </div>
 
@@ -930,6 +939,7 @@ body.sin-scroll{overflow:hidden}
       </div>
     </div>
     <div id="hoja-sinopsis" class="sinopsis"></div>
+    <div id="hoja-creditos" class="creditos"></div>
     <div class="g2" style="margin-top:12px">
       <button class="b" data-local="hoja-tele">📺 Ficha en la tele</button>
       <button class="b ok" data-local="hoja-accion" id="hoja-accion">Poner</button>
@@ -971,6 +981,25 @@ body.sin-scroll{overflow:hidden}
     }).catch(function () { aviso('No hay conexión con el hub', true); });
   }
 
+  function pintarCreditos(caja, creditos) {
+    caja.textContent = '';
+    Object.keys(creditos || {}).forEach(function (k) {
+      var fila = document.createElement('div');
+      var b = document.createElement('b');
+      b.textContent = k + ': ';
+      fila.appendChild(b);
+      fila.appendChild(document.createTextNode(creditos[k]));
+      caja.appendChild(fila);
+    });
+  }
+
+  function minutoDe(p) {
+    var t = Date.now() / 1000;
+    if (!p || !p.inicio_ts || !(p.inicio_ts <= t && t < p.fin_ts)) { return ''; }
+    return 'minuto ' + (Math.floor((t - p.inicio_ts) / 60) + 1) + ' de ' +
+      Math.max(1, Math.round((p.fin_ts - p.inicio_ts) / 60));
+  }
+
   function pintarFicha(f) {
     if (!f) { return; }
     $('titulo').textContent = f.title + (f.year ? ' (' + f.year + ')' : '');
@@ -992,12 +1021,15 @@ body.sin-scroll{overflow:hidden}
         $('titulo').textContent = 'Sin guía para ' + (e.canal || 'este canal');
         $('horario').textContent = ''; $('nota').textContent = ''; $('sinopsis').textContent = '';
         $('progreso').style.width = '0';
+        pintarCreditos($('creditos'), null);
       } else {
         tituloActual = a.titulo_busqueda || a.titulo;
         $('sinopsis').textContent = a.descripcion || '';
         pintarFicha(d.ficha);
         $('titulo').textContent = a.titulo;
-        $('horario').textContent = a.inicio + ' – ' + a.fin + (a.categoria ? ' · ' + a.categoria : '');
+        $('horario').textContent = a.inicio + ' – ' + a.fin + (minutoDe(a) ? ' · ' + minutoDe(a) : '') +
+          (a.categoria ? ' · ' + a.categoria : '');
+        pintarCreditos($('creditos'), a.creditos);
         $('progreso').style.width = (a.progreso || 0) + '%';
       }
       var s = e.siguiente;
@@ -1150,7 +1182,9 @@ body.sin-scroll{overflow:hidden}
   function pintarHoja(p, ficha) {
     var titulo = (ficha && ficha.title) || p.titulo;
     $('hoja-titulo').textContent = titulo + (ficha && ficha.year ? ' (' + ficha.year + ')' : '');
-    $('hoja-horario').textContent = dia(p.inicio_ts) + p.inicio + ' – ' + p.fin + (p.categoria ? ' · ' + p.categoria : '');
+    $('hoja-horario').textContent = dia(p.inicio_ts) + p.inicio + ' – ' + p.fin +
+      (minutoDe(p) ? ' · ' + minutoDe(p) : '') + (p.categoria ? ' · ' + p.categoria : '');
+    pintarCreditos($('hoja-creditos'), p.creditos);
     $('hoja-nota').textContent = (ficha && ficha.rating) || '';
     $('hoja-insignia').textContent = (ficha && ficha.badge) || '';
     $('hoja-sinopsis').textContent = (ficha && ficha.synopsis) || p.descripcion || 'Sin sinopsis en la guía.';
@@ -1369,6 +1403,9 @@ body.sin-scroll{overflow:hidden}
       var MODOS = {app: 'listos: en el centro y grandes', tvoverlay: 'en una esquina (TvOverlay): pulsa «Preparar avisos»'};
       $('avisos-estado').textContent = !av.activo ? 'desactivados' : (MODOS[av.modo] || 'sin preparar: pulsa «Preparar avisos»');
       $('avisos-estado').style.color = av.activo && av.modo !== 'app' ? '#fca5a5' : '';
+      $('ficha-cambio').textContent = d.ficha_al_cambiar ? 'sí (una vez por programa)' : 'no';
+      $('btn-ficha-on').classList.toggle('oculto', !!d.ficha_al_cambiar);
+      $('btn-ficha-off').classList.toggle('oculto', !d.ficha_al_cambiar);
       var sg = d.senal_guia || {};
       $('guia-senal').textContent = (sg.silencia ? 'silencia' : 'solo se apunta') + ' · ' + (sg.coinciden || 0) +
         ' de ' + (sg.botones || 0) + ' veces que pulsaste Silenciar';

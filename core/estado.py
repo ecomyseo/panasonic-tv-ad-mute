@@ -76,6 +76,20 @@ def activar_senal_guia(activar: bool) -> None:
         f.write("1" if activar else "0")
 
 
+def interruptor(nombre: str, defecto: bool) -> bool:
+    """Interruptor del mando web guardado en un fichero; si nunca se ha tocado, lo que diga la config."""
+    try:
+        with open(ruta("interruptor_" + nombre), encoding="utf-8") as f:
+            return f.read().strip() == "1"
+    except OSError:
+        return bool(defecto)
+
+
+def poner_interruptor(nombre: str, activar: bool) -> None:
+    with open(ruta("interruptor_" + nombre), "w", encoding="utf-8") as f:
+        f.write("1" if activar else "0")
+
+
 def poner_orden(nombre: str) -> None:
     with open(ruta("orden_" + nombre), "w", encoding="utf-8") as f:
         f.write(str(time.time()))

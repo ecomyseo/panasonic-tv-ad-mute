@@ -51,6 +51,7 @@ final class Aviso {
         final String mensaje;
         final String posicion;
         final String imagen;
+        final String pie;
         final int segundos;
         final int tamano;
 
@@ -60,6 +61,7 @@ final class Aviso {
             mensaje = recorta(o.getStringExtra("mensaje"), 700);
             posicion = recorta(o.getStringExtra("posicion"), 10);
             imagen = recorta(o.getStringExtra("imagen"), 600);
+            pie = recorta(o.getStringExtra("pie"), 320);
             segundos = limita(o.getIntExtra("segundos", 8), 2, 120);
             tamano = limita(o.getIntExtra("tamano", 40), 18, 96);
         }
@@ -120,6 +122,12 @@ final class Aviso {
             m2.setMaxLines(9);
             m2.setEllipsize(TextUtils.TruncateAt.END);
             textos.addView(conMargen(m2, (int) (12 * dp)));
+        }
+        if (!d.pie.isEmpty()) {
+            TextView p = texto(ctx, d.pie, d.tamano * 0.42f, 0xFF7DD3FC, false, anchoTexto, alineado);
+            p.setMaxLines(3);
+            p.setEllipsize(TextUtils.TruncateAt.END);
+            textos.addView(conMargen(p, (int) (14 * dp)));
         }
 
         // Ancho medido aquí y fijado en la ventana: con WRAP_CONTENT Android prueba primero el ancho de un diálogo
