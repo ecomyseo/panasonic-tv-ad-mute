@@ -60,17 +60,17 @@ Diseñado específicamente para ejecutarse de forma autónoma en una **Raspberry
   volumen. Necesita que la tele tenga el encendido por red activado.
 * **Apagar la tele si te vas** (apagado de fábrica): si el móvil no está en la WiFi de casa los minutos elegidos y
   la tele sigue encendida, avisa en la pantalla y, si en un minuto nadie toca el volumen ni cambia de canal, la apaga.
-* Todo se ajusta en **«⚙️ Ajustes»** del mando y se guarda en `ajustes.json` de la carpeta de estado (nunca en el
+* Todo se ajusta en **«🛠️ Opciones del hub»** del mando y se guarda en `ajustes.json` de la carpeta de estado (nunca en el
   repositorio: ahí van la clave de TMDb y el token de Home Assistant).
 
-### 1c-ter. 🏠 Casa (PREPARADO: se activa al rellenar «⚙️ Ajustes»)
+### 1c-ter. 🏠 Casa (PREPARADO: se activa al rellenar «🛠️ Opciones del hub»)
 * **Home Assistant** (API REST con un token de larga duración):
   * **Modo cine:** con una película (por la categoría de la guía) baja las luces elegidas; en los anuncios las deja
     como estaban y al volver las baja otra vez.
   * **Llamada entrante:** con el sensor `phone_state` de la app de Home Assistant en el móvil, silencia la tele y
     avisa «Te llaman al móvil»; al colgar devuelve el sonido.
   * **Avisos de la casa:** Home Assistant llama a `http://<hub>:8080/api/aviso_casa?clave=...&titulo=...&texto=...`
-    (la dirección completa sale en «⚙️ Ajustes») y el aviso sale en el centro de la tele.
+    (la dirección completa sale en «🛠️ Opciones del hub») y el aviso sale en el centro de la tele.
   * **Timbre con cámara:** al sonar, la foto de la cámara en el centro de la tele.
 * **Ambilight:** con una cámara que mira la pantalla, una tira LED con WLED y **HyperHDR** en una Raspberry Pi 4
   (la Zero 2 W no llega). La imagen de la TDT y de las apps de la tele no sale por ningún HDMI y la tele no deja
@@ -95,7 +95,7 @@ Diseñado específicamente para ejecutarse de forma autónoma en una **Raspberry
   sinopsis y el **reparto, la dirección, la música y quién presenta** (sin la app, se abre en el navegador de la TV,
   también centrada y grande). El reparto sale de la propia guía (líneas «· Reparto:», «· Dirección:»…).
 * **Botón del mando para la ficha:** el botón **amarillo** del mando de la tele (o el verde, o «i» dos veces: se
-  elige en «⚙️ Ajustes») enseña la ficha de lo que echan en el centro de la pantalla; pulsarlo otra vez la quita. Solo
+  elige en «🛠️ Opciones del hub») enseña la ficha de lo que echan en el centro de la pantalla; pulsarlo otra vez la quita. Solo
   cuentan las teclas del mando de verdad, no las que manda el hub.
 * **Ficha al cambiar de canal**: la primera vez que llegas a un programa sale su ficha 10 s; si vuelves al mismo
   programa no se repite y si estás zapeando rápido no sale. Se quita en el mando o con `FICHA_AL_CAMBIAR=0`.
@@ -160,7 +160,7 @@ panasonic-tv-ad-mute/
 │   ├── avisos_tv.py             # Avisos en la pantalla (app propia TV Hub Avisos; TvOverlay de reserva)
 │   ├── senal_guia.py            # Señal de la guía como pista de los anuncios (se apunta junto al botón)
 │   ├── ficha_tv.py              # Tarjeta de la ficha: nota, minuto, sinopsis, cartel y reparto
-│   ├── ajustes.py               # «⚙️ Ajustes» del mando (ajustes.json en la carpeta de estado)
+│   ├── ajustes.py               # «🛠️ Opciones del hub» del mando (ajustes.json en la carpeta de estado)
 │   ├── rutinas.py               # Volumen por canal, modo noche, despertador y apagar al salir
 │   ├── seguir.py                # Seguir una serie: recordatorios automáticos
 │   ├── casa.py                  # Home Assistant (luces, llamada, timbre) y HyperHDR (ambilight)

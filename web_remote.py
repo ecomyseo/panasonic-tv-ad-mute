@@ -428,7 +428,7 @@ def seguir_programa(qs):
 
 
 def aviso_casa(qs):
-    """Avisos que manda Home Assistant (lavadora, puerta...). Con la clave de «⚙️ Ajustes»."""
+    """Avisos que manda Home Assistant (lavadora, puerta...). Con la clave de «🛠️ Opciones del hub»."""
     import hmac  # noqa: PLC0415
 
     clave = ajustes.leer()["clave_avisos"]
@@ -600,16 +600,16 @@ def ejecutar_accion(cmd: str, qs: dict):
         return (200 if ok else 502), msg
     if cmd in ("luces_on", "luces_off"):
         if not casa.configurada():
-            return 400, "Falta Home Assistant en «⚙️ Ajustes»"
+            return 400, "Falta Home Assistant en «🛠️ Opciones del hub»"
         if casa.luces_encender(cmd == "luces_on"):
             return 200, "Luces encendidas" if cmd == "luces_on" else "Luces apagadas"
-        return 502, "Home Assistant no ha contestado (¿has puesto las luces en «⚙️ Ajustes»?)"
+        return 502, "Home Assistant no ha contestado (¿has puesto las luces en «🛠️ Opciones del hub»?)"
     if cmd in ("cine_on", "cine_off"):
         ajustes.guardar({"ha_cine": cmd == "cine_on"})
         return 200, "Modo cine activado" if cmd == "cine_on" else "Modo cine desactivado"
     if cmd in ("ambilight_on", "ambilight_off"):
         if not ajustes.leer()["hyperhdr_url"]:
-            return 400, "Falta la dirección de HyperHDR en «⚙️ Ajustes»"
+            return 400, "Falta la dirección de HyperHDR en «🛠️ Opciones del hub»"
         if casa.ambilight(cmd == "ambilight_on"):
             return 200, "Ambilight encendido" if cmd == "ambilight_on" else "Ambilight apagado"
         return 502, "HyperHDR no ha contestado"
@@ -955,7 +955,7 @@ body.sin-scroll{overflow:hidden}
       <span class="chip" id="chip-tv">TV: ...</span>
       <span class="chip" id="chip-auto">Silenciador: ...</span>
     </div>
-    <div class="cabecera-botones"><button class="b" data-local="aj-abrir">⚙️ Ajustes</button></div>
+    <div class="cabecera-botones"><button class="b" data-local="aj-abrir">🛠️ Opciones del hub</button></div>
   </header>
 
   <button class="publi" data-cmd="publi" id="btn-publi">🔇 SILENCIAR ANUNCIOS</button>
@@ -1138,7 +1138,7 @@ body.sin-scroll{overflow:hidden}
 <div id="aj-panel" class="oculto">
   <div class="gp-cab">
     <div class="gp-fila">
-      <div class="gp-titulo">⚙️ Ajustes</div>
+      <div class="gp-titulo">🛠️ Opciones del hub</div>
       <button class="gp-cerrar" data-local="aj-cerrar" aria-label="Cerrar">✕</button>
     </div>
   </div>

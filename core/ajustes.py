@@ -1,5 +1,5 @@
 """
-Ajustes que se cambian desde el mando web (pantalla «⚙️ Ajustes»), guardados en <estado>/ajustes.json.
+Ajustes que se cambian desde el mando web (pantalla «🛠️ Opciones del hub»), guardados en <estado>/ajustes.json.
 
 Son de esta casa y no van al repositorio: la clave de TMDb, la dirección y el token de Home Assistant, la IP del
 móvil... El servicio los relee cuando cambia el fichero, sin reiniciar nada. Lo que no se ha tocado nunca vale lo de

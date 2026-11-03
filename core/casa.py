@@ -2,7 +2,7 @@
 La casa: Home Assistant (luces, llamada en el móvil, timbre con cámara) y el ambilight (HyperHDR).
 
 PREPARADO: no hace nada mientras no se ponga la dirección y el token de Home Assistant (o la de HyperHDR) en
-«⚙️ Ajustes» del mando. Habla con la API REST de Home Assistant con un token de larga duración
+«🛠️ Opciones del hub» del mando. Habla con la API REST de Home Assistant con un token de larga duración
 (Perfil → Seguridad → Tokens de acceso de larga duración); con HyperHDR, por su API JSON.
 """
 
