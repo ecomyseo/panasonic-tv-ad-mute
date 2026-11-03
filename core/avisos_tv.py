@@ -23,6 +23,9 @@ import urllib.request
 import config
 
 PAQUETE = "es.gmartos.tvhub.avisos"
+# La versión de la app que va con este hub (VERSION_CODIGO de avisos_app/construir_apk.py). La 4 trae el Lector
+# de pantalla (la ficha del programa marcado en la guía): si en la tele hay una anterior, se actualiza sola.
+VERSION_APP = 4
 RECEPTOR = PAQUETE + "/.Receptor"
 ACCION = "es.gmartos.tvhub.AVISO"
 POSICIONES = ("centro", "arriba", "abajo")
@@ -131,6 +134,32 @@ class AvisosTV:
         paquetes = self.tv.paquetes_instalados(forzar=forzar)
         return None if paquetes is None else PAQUETE in paquetes
 
+    def version_instalada(self):
+        """versionCode de la app de avisos en la tele (0 si no se sabe)."""
+        m = re.search(r"versionCode=(\d+)", self.tv.shell("dumpsys", "package", PAQUETE, timeout=10) or "")
+        return int(m.group(1)) if m else 0
+
+    def actualizar_app(self):
+        """Instala (o pone al día) la app de avisos y le da permiso para pintar encima. (correcto, mensaje)"""
+        apk = ruta_apk()
+        if not os.path.exists(apk):
+            return False, f"Falta la app de avisos ({apk})"
+        _, salida, error = self.tv._ejecutar(["-s", self.tv.tv_ip, "install", "-r", apk], timeout=180)
+        if "Success" not in salida:
+            detalle = (error or salida).strip().splitlines()
+            return False, "La TV no ha aceptado la app de avisos" + (f": {detalle[-1]}" if detalle else "")
+        self.tv.paquetes_instalados(forzar=True)
+        self.tv.shell("appops", "set", PAQUETE, "SYSTEM_ALERT_WINDOW", "allow")
+        return True, "App de avisos al día"
+
+    def al_dia(self):
+        """Si la app de la tele es de una versión anterior, la pone al día. True si queda al día."""
+        if not self.instalada(forzar=True):
+            return False
+        if self.version_instalada() >= VERSION_APP:
+            return True
+        return self.actualizar_app()[0]
+
     def preparar(self):
         """
         Instala la app de avisos si falta, le da permiso para pintar encima y enseña un aviso de prueba.
@@ -141,15 +170,10 @@ class AvisosTV:
         instalada = self.instalada(forzar=True)
         if instalada is None:
             return False, "La TV no responde"
-        if not instalada:
-            apk = ruta_apk()
-            if not os.path.exists(apk):
-                return False, f"Falta la app de avisos ({apk})"
-            _, salida, error = self.tv._ejecutar(["-s", self.tv.tv_ip, "install", "-r", apk], timeout=180)
-            if "Success" not in salida:
-                detalle = (error or salida).strip().splitlines()
-                return False, "La TV no ha aceptado la app de avisos" + (f": {detalle[-1]}" if detalle else "")
-            self.tv.paquetes_instalados(forzar=True)
+        if not instalada or self.version_instalada() < VERSION_APP:
+            correcto, mensaje = self.actualizar_app()
+            if not correcto:
+                return False, mensaje
         self.tv.shell("appops", "set", PAQUETE, "SYSTEM_ALERT_WINDOW", "allow")
         if self._mostrar_app("Panasonic TV Hub", "Los avisos saldrán así: en el centro y con letra grande.", 8):
             return True, "Avisos listos: mira la tele"

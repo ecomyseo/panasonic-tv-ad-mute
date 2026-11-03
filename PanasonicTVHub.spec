@@ -5,7 +5,7 @@
 
 OCULTOS = ['tv_manager', 'media_info', 'privacy_shield', 'config', 'estado', 'epg', 'pi_salud', 'vuelta',
            'recordatorios', 'avisos_tv', 'senal_guia', 'ficha_tv', 'ajustes', 'casa', 'rutinas', 'seguir',
-           'presencia', 'sintonizador', 'dns_hub', 'whatsapp_privado', 'cortafuegos_windows', 'panasonic_ad_mute',
+           'presencia', 'sintonizador', 'dns_hub', 'pantalla_tv', 'whatsapp_privado', 'cortafuegos_windows', 'panasonic_ad_mute',
            'web_remote', 'menu_tv', 'app_launcher']
 
 

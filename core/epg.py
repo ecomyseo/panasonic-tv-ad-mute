@@ -267,6 +267,14 @@ class GuiaEPG:
                 return p
         return None
 
+    def a_la_hora(self, canal: str, momento: float):
+        """El programa de ese canal de la guía que se emite en ese momento (formato público), o None."""
+        datos = self._datos()
+        for p in (datos["canales"].get(canal, []) if datos else []):
+            if p["i"] <= momento < p["f"]:
+                return self._publico(p)
+        return None
+
 
 def _plano(texto: str) -> str:
     texto = unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode().lower()

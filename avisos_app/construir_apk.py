@@ -21,8 +21,8 @@ import zipfile
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 SALIDA = os.path.join(AQUI, "TVHubAvisos.apk")
-VERSION_CODIGO = 3
-VERSION_NOMBRE = "1.2"
+VERSION_CODIGO = 4
+VERSION_NOMBRE = "1.3"
 SDK_MIN, SDK_OBJETIVO = 26, 34
 SDK = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT") or r"C:\dev\android-sdk"
 CLAVES = os.environ.get("TVHUB_CLAVE_DIR") or r"C:\dev-tools\claves\tvhub_avisos"

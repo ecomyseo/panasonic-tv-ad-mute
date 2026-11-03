@@ -11,6 +11,7 @@ Panasonic Google TV Ad-Mute Daemon (Raspberry Pi Zero 2 W / Linux)
 - Apagado nocturno opcional (APAGADO_NOCTURNO=HH:MM).
 """
 
+import json
 import os
 import re
 import signal
@@ -30,6 +31,7 @@ import ajustes  # noqa: E402
 import dns_hub  # noqa: E402
 import casa as casa_mod  # noqa: E402
 import ficha_tv  # noqa: E402
+import pantalla_tv  # noqa: E402
 import presencia  # noqa: E402
 import rutinas  # noqa: E402
 import seguir  # noqa: E402
@@ -58,15 +60,17 @@ if not any(e.startswith("MtkTvEvent_jni") for e in ETIQUETAS):
 if not any(e.startswith("MtkTvAvMode_jni") for e in ETIQUETAS):
     ETIQUETAS.append("MtkTvAvMode_jni:D")  # brillo de la imagen (fotogramas negros entre anuncios)
 _RE_LUMA = re.compile(r"ui2_avg_pixel_luma = (\d+)")
-if not any(e.startswith("TurnkeyUiMainActivity") for e in ETIQUETAS):
-    ETIQUETAS.append("TurnkeyUiMainActivity:I")  # las teclas del mando que recibe la TDT (botón de la ficha)
+if not any(e.startswith("[GLUE][IR]u8KeyCode") for e in ETIQUETAS):
+    ETIQUETAS.append("[GLUE][IR]u8KeyCode:W")  # las teclas del mando, en el registro del núcleo (botón de la ficha)
 GUIA_SILENCIA = CFG.get("GUIA_SILENCIA", "0").strip() == "1"
 DNS_ACTIVO = CFG.get("DNS_ACTIVO", "0").strip() == "1"
-# Tecla del mando de verdad (las que manda el hub por ADB llevan deviceId=-1 y no cuentan)
-_RE_TECLA = re.compile(r"KeyHandler keycode=\d+ event=KeyEvent \{ action=ACTION_DOWN, keyCode=(KEYCODE_\w+),"
-                       r".*?repeatCount=(\d+),.*?deviceId=(-?\d+)")
-BOTONES_FICHA = {"amarillo": ("KEYCODE_PROG_YELLOW", 1), "verde": ("KEYCODE_PROG_GREEN", 1),
-                 "info_doble": ("KEYCODE_INFO", 2)}
+# Tecla del mando de verdad. Medido el 3/11/2026: el amarillo NO llega a la TDT (no sale en su KeyHandler), pero
+# toda tecla del mando sale en el registro del NÚCLEO (logcat -b kernel) con su código de Linux:
+#   W/[GLUE][IR]u8KeyCode(  651): 0x0190 , u8KeyState: 0x0   (0x0 = pulsada, 0x2 = soltada)
+# Las que manda el hub por ADB no pasan por el infrarrojo y no salen ahí.
+_RE_TECLA = re.compile(r"u8KeyCode\(\s*\d+\):\s*0x([0-9a-fA-F]+)\s*,\s*u8KeyState:\s*0x([0-9a-fA-F]+)")
+BOTONES_FICHA = {"amarillo": (0x190, 1), "verde": (0x18F, 1), "info_doble": (0x166, 2)}
+BUFFERS_LOGCAT = ["-b", "main", "-b", "system", "-b", "kernel"]
 FICHA_AL_CAMBIAR = CFG.get("FICHA_AL_CAMBIAR", "1").strip() == "1"
 FICHA_ESPERA = config.entero(CFG, "FICHA_ESPERA", 3)
 FICHA_SEGUNDOS = config.entero(CFG, "FICHA_SEGUNDOS", 10)
@@ -108,7 +112,11 @@ ultimo_seguir = 0.0
 cerrojo_fichas = threading.Lock()
 negros = rutinas.ContadorNegros()
 pulsaciones = []                # horas de las pulsaciones del botón de la ficha
+fallos_de_linea = set()         # fallos al procesar una línea (se apunta cada uno una sola vez)
 ficha_en_pantalla = [0.0]       # hasta cuándo se ve la ficha pedida con el mando
+ficha_pedida = [0.0]            # cuándo se pidió la última con el mando
+ficha_mostrada = [0.0]          # cuándo salió en la tele
+QUITAR_TRAS = 2.0               # una pulsación antes de esto, con la ficha recién salida, no la quita
 
 
 REGISTRO = None                 # en el programa de Windows se escribe aquí y no en la consola del menú
@@ -249,10 +257,10 @@ def ficha_al_cambiar(nombre):
 def tecla_del_mando(linea):
     """El botón de la ficha (amarillo, verde o dos veces «i»): enseña la ficha; otra vez, la quita."""
     m = _RE_TECLA.search(linea)
-    if not m or m.group(3) == "-1" or m.group(2) != "0":
+    if not m or int(m.group(2), 16) != 0:
         return
     eleccion = BOTONES_FICHA.get(ajustes.leer().get("boton_ficha"))
-    if not eleccion or m.group(1) != eleccion[0]:
+    if not eleccion or int(m.group(1), 16) != eleccion[0]:
         pulsaciones.clear()
         return
     ahora = time.time()
@@ -262,15 +270,64 @@ def tecla_del_mando(linea):
         return
     pulsaciones.clear()
     if ahora < ficha_en_pantalla[0]:
+        # Medido el 3/11/2026: sin ver nada al momento se vuelve a pulsar (0,9 s después) y eso la quitaba
+        # antes de verla. Mientras se prepara, o recién salida, otra pulsación no hace nada.
+        if ficha_mostrada[0] < ficha_pedida[0] or ahora - ficha_mostrada[0] < QUITAR_TRAS:
+            return
         ficha_en_pantalla[0] = 0.0
+        log("Ficha quitada con el mando.")
         threading.Thread(target=avisos.ocultar, daemon=True).start()
     else:
-        ficha_en_pantalla[0] = ahora + FICHA_SEGUNDOS + 5
-        threading.Thread(target=ficha_ahora, daemon=True).start()
+        ficha_pedida[0] = ahora
+        ficha_en_pantalla[0] = ahora + 60   # mientras se prepara (leer la guía tarda unos segundos)
+        threading.Thread(target=ficha_con_el_mando, daemon=True).start()
+
+
+def ficha_con_el_mando():
+    try:
+        ficha_ahora()
+    finally:
+        ficha_mostrada[0] = time.time()
+        ficha_en_pantalla[0] = ficha_mostrada[0] + FICHA_SEGUNDOS + 5
+
+
+def ficha_de_la_guia():
+    """Con la guía de la tele abierta: la ficha del programa MARCADO en ella. False si no es la guía."""
+    if not pantalla_tv.es_la_guia(tv._foco_actual()):
+        return False
+    filas = pantalla_tv.leer(tv)
+    if not filas and avisos.version_instalada() < avisos_tv.VERSION_APP:
+        log("La app de avisos de la tele es de una versión anterior (sin el lector de la guía): la pongo al día.")
+        if avisos.al_dia():
+            filas = pantalla_tv.leer(tv)
+    marcado = pantalla_tv.programa_de_la_guia(filas)
+    if not marcado:
+        log("Botón de la ficha en la guía, pero no he podido leer el programa marcado.")
+        return False
+    guia = GuiaEPG(CFG)
+    clave = guia.buscar_canal(marcado["canal"]) if marcado["canal"] else None
+    programa = None
+    if clave and marcado["inicio_ts"] and marcado["fin_ts"]:
+        programa = guia.a_la_hora(clave, (marcado["inicio_ts"] + marcado["fin_ts"]) / 2)
+    if not programa:
+        programa = pantalla_tv.como_programa(marcado)
+    elif programa.get("inicio_ts"):
+        programa = dict(programa, inicio=pantalla_tv._hora(programa["inicio_ts"], time.time()))
+    if not programa.get("descripcion"):
+        programa["descripcion"] = marcado["detalle"]
+    log(f"Ficha pedida con el mando en la guía: «{programa['titulo']}» en {marcado['canal'] or '?'}.")
+    busqueda = programa.get("titulo_busqueda") or pantalla_tv.titulo_para_buscar(programa["titulo"])[0]
+    ficha = MediaInfoService.buscar_info_pelicula(busqueda, epg=programa)
+    t = ficha_tv.tarjeta(programa, marcado["canal"], ficha=ficha, plataformas=MediaInfoService.sin_anuncios(busqueda))
+    avisos.mostrar(t["titulo"], t["mensaje"], duracion=FICHA_SEGUNDOS + 5, detalle=t["detalle"], imagen=t["imagen"],
+                   pie=t["pie"], solo_app=True)
+    return True
 
 
 def ficha_ahora():
-    """La ficha de lo que echan ahora en el canal que se ve, pedida con el mando."""
+    """La ficha pedida con el mando: la del programa marcado si está la guía abierta; si no, la de lo que echan."""
+    if ficha_de_la_guia():
+        return
     nombre = datos.get("canal") or ""
     actual = GuiaEPG(CFG).ahora(nombre).get("actual") if nombre else None
     if not actual:
@@ -569,7 +626,7 @@ def procesar_linea(linea):
     tipo = senal.procesar(linea)
     if tipo:
         al_ver_senal_guia(tipo)
-    if "KeyHandler" in linea:
+    if "u8KeyCode" in linea:
         tecla_del_mando(linea)
     if APRENDIZAJE:
         registrar_aprendizaje(linea)
@@ -616,7 +673,8 @@ def bucle_logcat():
             if not tv.connect():
                 log(f"La TV ({TV_IP}) no responde. Reintento en {espera}s.")
             else:
-                orden = tv.adb_base + ["-s", TV_IP, "logcat", "-v", "time", "-T", "1"] + ETIQUETAS + ["*:S"]
+                orden = (tv.adb_base + ["-s", TV_IP, "logcat"] + BUFFERS_LOGCAT + ["-v", "time", "-T", "1"]
+                         + ETIQUETAS + ["*:S"])
                 proc_logcat = subprocess.Popen(orden, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                                stdin=subprocess.DEVNULL, text=True, encoding="utf-8",
                                                errors="replace", bufsize=1, creationflags=SIN_VENTANA)
@@ -624,11 +682,23 @@ def bucle_logcat():
                 for linea in proc_logcat.stdout:
                     if parar.is_set():
                         break
-                    procesar_linea(linea)
-                proc_logcat.terminate()
-                proc_logcat = None
+                    try:
+                        procesar_linea(linea)
+                    except Exception as e:  # noqa: BLE001 - una línea rara no corta la escucha
+                        fallo = f"{type(e).__name__}: {e}"
+                        if fallo not in fallos_de_linea:
+                            fallos_de_linea.add(fallo)
+                            log(f"Aviso: no he podido procesar una línea de la TV ({fallo}).")
         except Exception as e:  # noqa: BLE001 - el servicio no se cae nunca por un fallo de ADB
             log(f"Aviso en el bucle de escucha: {e}")
+        finally:
+            # Siempre se cierra el adb logcat de esta vuelta: si no, cada fallo deja uno vivo para siempre
+            if proc_logcat is not None:
+                try:
+                    proc_logcat.terminate()
+                except OSError:
+                    pass
+                proc_logcat = None
         if parar.is_set():
             break
         # Si la escucha dura poco (TV apagada), se espacian los reintentos hasta 60 s

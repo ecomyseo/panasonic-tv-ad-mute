@@ -27,4 +27,10 @@
             </intent-filter>
         </receiver>
     </application>
+
+    <!-- Lee los textos de la pantalla cuando el hub lo pide (el programa marcado en la guía). Solo el ADB lo lanza. -->
+    <instrumentation
+        android:name=".Lector"
+        android:label="TV Hub Lector"
+        android:targetPackage="es.gmartos.tvhub.avisos" />
 </manifest>
