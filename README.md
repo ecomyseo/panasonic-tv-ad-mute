@@ -226,13 +226,18 @@ y sin cables (lo único que no puede es el DNS antirrastreo: el puerto 53 exige 
 
 1. Instala **Termux** y **Termux:Boot** desde F-Droid (los dos de F-Droid: si uno viene de la Play Store no se
    entienden) y abre Termux:Boot una vez.
-2. En Termux, pega: `curl -sL https://raw.githubusercontent.com/ecomyseo/panasonic-tv-ad-mute/master/termux/instalar.sh | bash -s <IP de la tele>`
+2. En Termux, una orden por línea:
+   ```
+   pkg upgrade -y
+   pkg install -y git
+   git clone https://github.com/ecomyseo/panasonic-tv-ad-mute
+   bash panasonic-tv-ad-mute/termux/instalar.sh
+   ```
 3. Acepta en la tele «¿Permitir la depuración?» marcando «Permitir siempre».
 4. Ajustes del móvil → Aplicaciones → Termux → Batería → **Sin restricciones**.
 
-El mando queda en `http://<IP del móvil>:8080`. Volver a lanzar la orden lo pone al día sin tocar los ajustes
-(`~/.panasonic-tv-hub/config.env`). Parar: `~/panasonic-tv-hub/termux/parar.sh`; arrancar: `~/panasonic-tv-hub/termux/arrancar.sh`.
-Los registros están en `~/.panasonic-tv-hub/silenciador.log` y `web.log`.
+El mando queda en `http://<IP del móvil>:8080`. **Guía completa paso a paso, para gastar lo mínimo de luz y qué hacer
+si algo falla: [termux/README.md](termux/README.md).**
 
 ---
 

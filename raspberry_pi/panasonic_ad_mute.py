@@ -14,6 +14,7 @@ Panasonic Google TV Ad-Mute Daemon (Raspberry Pi Zero 2 W / Linux)
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -71,6 +72,13 @@ DNS_ACTIVO = CFG.get("DNS_ACTIVO", "0").strip() == "1"
 _RE_TECLA = re.compile(r"u8KeyCode\(\s*\d+\):\s*0x([0-9a-fA-F]+)\s*,\s*u8KeyState:\s*0x([0-9a-fA-F]+)")
 BOTONES_FICHA = {"amarillo": (0x190, 1), "verde": (0x18F, 1), "info_doble": (0x166, 2)}
 BUFFERS_LOGCAT = ["-b", "main", "-b", "system", "-b", "kernel"]
+# Lo que de verdad usa el servicio. Medido el 3/11/2026: con las etiquetas de arriba la tele escribe ~357 líneas por
+# segundo y solo ~7 sirven (casi todo es MtkTvAvMode_jni y MtkTvChannelList_jni). Se filtran EN LA TELE con
+# «grep --line-buffered -F», así por la red y por Python solo pasa lo útil (en un móvil, menos batería y menos luz).
+LINEAS_UTILES = ("Current channel", "getChannelNumber=", "getChannelName=", "_event_nfy_fct callback_type=4",
+                 "avg_pixel_luma", "u8KeyCode")
+FILTRAR_EN_TV = CFG.get("LOGCAT_FILTRO_TV", "1").strip() != "0"
+TECLAS_VOLUMEN = (0x71, 0x72, 0x73)   # silencio, bajar y subir volumen del mando (registro del núcleo)
 FICHA_AL_CAMBIAR = CFG.get("FICHA_AL_CAMBIAR", "1").strip() == "1"
 FICHA_ESPERA = config.entero(CFG, "FICHA_ESPERA", 3)
 FICHA_SEGUNDOS = config.entero(CFG, "FICHA_SEGUNDOS", 10)
@@ -113,6 +121,7 @@ cerrojo_fichas = threading.Lock()
 negros = rutinas.ContadorNegros()
 pulsaciones = []                # horas de las pulsaciones del botón de la ficha
 fallos_de_linea = set()         # fallos al procesar una línea (se apunta cada uno una sola vez)
+volumen_tocado = threading.Event()  # se ha pulsado una tecla de volumen en el mando
 ficha_en_pantalla = [0.0]       # hasta cuándo se ve la ficha pedida con el mando
 ficha_pedida = [0.0]            # cuándo se pidió la última con el mando
 ficha_mostrada = [0.0]          # cuándo salió en la tele
@@ -259,6 +268,9 @@ def tecla_del_mando(linea):
     m = _RE_TECLA.search(linea)
     if not m or int(m.group(2), 16) != 0:
         return
+    if int(m.group(1), 16) in TECLAS_VOLUMEN:
+        volumen_tocado.set()  # el volumen se mira ahora, en vez de cada pocos segundos
+        return
     eleccion = BOTONES_FICHA.get(ajustes.leer().get("boton_ficha"))
     if not eleccion or int(m.group(1), 16) != eleccion[0]:
         pulsaciones.clear()
@@ -392,6 +404,8 @@ def revisar_volumen():
     a = ajustes.leer()
     if not (a["volumen_por_canal"] or a["noche_activo"]):
         return
+    if datos.get("conexion") not in (None, "device"):  # con la tele apagada no se le pregunta nada
+        return
     v = tv.volumen_leer()
     if v is None:
         return
@@ -411,7 +425,13 @@ def revisar_volumen():
 
 
 def bucle_volumen():
-    while not parar.wait(VOLUMEN_CADA):
+    """Se mira el volumen cuando se toca en el mando (y, por si acaso, cada VOLUMEN_CADA s), no sin parar."""
+    while not parar.is_set():
+        if volumen_tocado.wait(VOLUMEN_CADA):
+            volumen_tocado.clear()
+            if parar.wait(2.5):  # que se acabe de pulsar
+                break
+            volumen_tocado.clear()
         try:
             revisar_volumen()
         except Exception as e:  # noqa: BLE001
@@ -664,6 +684,15 @@ def apuntar_negros(fila):
         pass
 
 
+def orden_logcat():
+    escucha = ["logcat"] + BUFFERS_LOGCAT + ["-v", "time", "-T", "1"] + ETIQUETAS + ["*:S"]
+    if not FILTRAR_EN_TV or APRENDIZAJE:  # aprendiendo hay que verlo todo
+        return tv.adb_base + ["-s", TV_IP] + escucha
+    claves = list(LINEAS_UTILES) + PATRONES + PATRONES_FIN
+    filtro = "grep --line-buffered -F " + " ".join("-e " + shlex.quote(c) for c in claves)
+    return tv.adb_base + ["-s", TV_IP, "shell", " ".join(shlex.quote(a) for a in escucha) + " | " + filtro]
+
+
 def bucle_logcat():
     global proc_logcat
     espera = 5
@@ -673,8 +702,7 @@ def bucle_logcat():
             if not tv.connect():
                 log(f"La TV ({TV_IP}) no responde. Reintento en {espera}s.")
             else:
-                orden = (tv.adb_base + ["-s", TV_IP, "logcat"] + BUFFERS_LOGCAT + ["-v", "time", "-T", "1"]
-                         + ETIQUETAS + ["*:S"])
+                orden = orden_logcat()
                 proc_logcat = subprocess.Popen(orden, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                                stdin=subprocess.DEVNULL, text=True, encoding="utf-8",
                                                errors="replace", bufsize=1, creationflags=SIN_VENTANA)

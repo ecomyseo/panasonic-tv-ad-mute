@@ -39,7 +39,7 @@ DEFECTOS = {
     "FICHA_AL_CAMBIAR": "1",  # ficha de lo que echan la primera vez que llegas a ese programa
     "FICHA_ESPERA": "3",
     "FICHA_SEGUNDOS": "10",
-    "VOLUMEN_CADA": "4",          # cada cuántos segundos se mira el volumen (modo noche y volumen por canal)
+    "VOLUMEN_CADA": "20",         # además de al tocar el volumen en el mando: cada cuántos segundos se mira
     "VOLUMEN_ESTABLE": "8",
     "VOLUMEN_TRAS_CAMBIO": "10",
     "DNS_ACTIVO": "0",        # 1 = el hub hace de DNS antirrastreo (pensado para la Raspberry)
