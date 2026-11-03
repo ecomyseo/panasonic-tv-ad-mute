@@ -189,6 +189,7 @@ panasonic-tv-ad-mute/
 │   ├── desplegar_desde_windows.py
 │   ├── config.env               # Plantilla de configuración
 │   └── README.md                # Guía de puesta en marcha paso a paso
+├── termux/                      # El hub en un móvil Android (instalar.sh, arrancar.sh, parar.sh)
 ├── windows/                     # Módulo para PC con Windows
 │   ├── control_tv_windows.py    # Controlador para Windows
 │   ├── auto_mute_daemon.py      # Servicio de escucha automática en Windows
@@ -215,6 +216,23 @@ Cuando recibas tu kit **GeeekPi Raspberry Pi Zero 2 W**:
 4. En el móvil: `http://raspberrypi.local:8080`. En la consola de la Pi: `tvhub`.
 
 Guía completa, configuración y órdenes: **[raspberry_pi/README.md](raspberry_pi/README.md)**.
+
+---
+
+## 📱 Puesta en marcha en un móvil Android viejo (Termux)
+
+Un móvil con Android 7 o superior que se quede enchufado y con wifi hace de hub igual que la Raspberry, sin root
+y sin cables (lo único que no puede es el DNS antirrastreo: el puerto 53 exige root).
+
+1. Instala **Termux** y **Termux:Boot** desde F-Droid (los dos de F-Droid: si uno viene de la Play Store no se
+   entienden) y abre Termux:Boot una vez.
+2. En Termux, pega: `curl -sL https://raw.githubusercontent.com/ecomyseo/panasonic-tv-ad-mute/master/termux/instalar.sh | bash -s <IP de la tele>`
+3. Acepta en la tele «¿Permitir la depuración?» marcando «Permitir siempre».
+4. Ajustes del móvil → Aplicaciones → Termux → Batería → **Sin restricciones**.
+
+El mando queda en `http://<IP del móvil>:8080`. Volver a lanzar la orden lo pone al día sin tocar los ajustes
+(`~/.panasonic-tv-hub/config.env`). Parar: `~/panasonic-tv-hub/termux/parar.sh`; arrancar: `~/panasonic-tv-hub/termux/arrancar.sh`.
+Los registros están en `~/.panasonic-tv-hub/silenciador.log` y `web.log`.
 
 ---
 
