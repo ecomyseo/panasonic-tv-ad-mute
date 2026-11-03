@@ -125,10 +125,33 @@ _cache = {}
 _cache_lock = threading.Lock()
 
 
+_refrescando = set()
+
+
+def _refrescar(clave, funcion):
+    try:
+        valor = funcion()
+        with _cache_lock:
+            _cache[clave] = (time.time(), valor)
+    except Exception:  # noqa: BLE001 - se queda el valor de antes
+        pass
+    finally:
+        with _cache_lock:
+            _refrescando.discard(clave)
+
+
 def en_cache(clave, funcion, segundos):
+    """Lo caducado hace poco se devuelve tal cual y se refresca por detrás: preguntarle a la tele por ADB tarda,
+    y en un móvil (Termux) una página del mando llegaba a tardar 6-11 s cada vez que caducaba (medido el 3/11/2026)."""
+    ahora = time.time()
     with _cache_lock:
         guardado = _cache.get(clave)
-        if guardado and time.time() - guardado[0] < segundos:
+        if guardado and ahora - guardado[0] < segundos:
+            return guardado[1]
+        if guardado and ahora - guardado[0] < segundos * 6:
+            if clave not in _refrescando:
+                _refrescando.add(clave)
+                threading.Thread(target=_refrescar, args=(clave, funcion), daemon=True).start()
             return guardado[1]
     valor = funcion()
     with _cache_lock:
