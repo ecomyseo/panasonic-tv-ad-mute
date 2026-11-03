@@ -14,7 +14,7 @@ def analisis(guion):
         [guion],
         pathex=['core', 'raspberry_pi'],
         binaries=[],
-        datas=[('core', 'core'), ('avisos_app/TVHubAvisos.apk', 'avisos_app')],
+        datas=[('core', 'core'), ('avisos_app/TVHubAvisos.apk', 'avisos_app'), ('termux/instalar.sh', 'termux')],
         hiddenimports=OCULTOS,
         hookspath=[],
         hooksconfig={},

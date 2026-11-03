@@ -34,6 +34,18 @@ def leer() -> dict:
              "temperatura": None, "alimentacion": [], "alimentacion_ok": None,
              "carga": None, "ram_libre_mb": None, "ram_total_mb": None, "encendida_horas": None}
 
+    getprop = shutil.which("getprop")
+    if getprop and os.environ.get("PREFIX", "").startswith("/data/data/com.termux"):
+        # En un móvil con Termux: marca y modelo del teléfono (el árbol de dispositivos no se deja leer)
+        try:
+            partes = [subprocess.run([getprop, p], capture_output=True, text=True, timeout=3,
+                                     stdin=subprocess.DEVNULL).stdout.strip()
+                      for p in ("ro.product.manufacturer", "ro.product.model", "ro.build.version.release")]
+            if partes[1]:
+                datos["modelo"] = f"{partes[0]} {partes[1]} (Android {partes[2]})".strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+
     t = _leer("/sys/class/thermal/thermal_zone0/temp")
     if t.isdigit():
         datos["temperatura"] = round(int(t) / 1000.0, 1)

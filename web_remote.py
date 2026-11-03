@@ -9,6 +9,7 @@ Puerto: WEB_PORT (8080 por defecto).
 import ipaddress
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -1926,6 +1927,24 @@ class RemoteHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(cuerpo)
 
+    def _instalador_termux(self):
+        """El instalador del hub para un móvil con Termux, con la IP de esta tele ya puesta. Así, en el móvil
+        basta con escribir «curl -s <IP del PC>:8080/termux | bash» (sin copiar la dirección larga de GitHub)."""
+        try:
+            with open(os.path.join(BASE, "termux", "instalar.sh"), encoding="utf-8") as f:
+                guion = f.read()
+        except OSError:
+            self._json({"status": "error", "message": "No existe"}, 404)
+            return
+        ip = re.sub(r"[^0-9A-Za-z.:-]", "", TV_IP)
+        cuerpo = guion.replace('TV_IP="${1:-}"', f'TV_IP="${{1:-{ip}}}"').encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self._cabeceras_sin_cache()
+        self.end_headers()
+        self.wfile.write(cuerpo)
+
     def _fichero(self, ruta, tipo):
         try:
             with open(ruta, "rb") as f:
@@ -2012,6 +2031,8 @@ class RemoteHandler(BaseHTTPRequestHandler):
                 self._json(ficha_programa(qs))
             elif url.path == "/privacidad":
                 self._html(HTML_PRIVACIDAD)
+            elif url.path == "/termux":
+                self._instalador_termux()
             elif url.path == "/api/privacidad":
                 self._json(privacidad())
             elif url.path == "/api/ajustes":
