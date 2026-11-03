@@ -21,15 +21,24 @@ fi
 
 echo "== 1/5 Programas (python y adb)"
 export DEBIAN_FRONTEND=noninteractive
-yes | pkg update -y -o Dpkg::Options::=--force-confnew >/dev/null 2>&1 || true
+# upgrade y no update: con un Termux recién instalado, instalar sin poner al día lo que ya trae deja programas
+# que no arrancan («cannot locate symbol SSL_...», visto en un Umidigi el 3/11/2026)
+yes | pkg upgrade -y -o Dpkg::Options::=--force-confnew >/dev/null 2>&1 || true
 pkg install -y -o Dpkg::Options::=--force-confnew python android-tools curl tar >/dev/null
 command -v python >/dev/null && command -v adb >/dev/null || { echo "No se han instalado python o adb." >&2; exit 1; }
 
-echo "== 2/5 El hub (de GitHub)"
 TEMPORAL="$(mktemp -d)"
-curl -sfL "https://codeload.github.com/$REPO/tar.gz/refs/heads/master" -o "$TEMPORAL/hub.tar.gz"
 mkdir -p "$TEMPORAL/hub"
-tar -xzf "$TEMPORAL/hub.tar.gz" -C "$TEMPORAL/hub" --strip-components=1
+# Lanzado desde una copia del repositorio (git clone ...; bash panasonic-tv-ad-mute/termux/instalar.sh), se usa esa
+ORIGEN="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd)"
+if [ -f "$ORIGEN/raspberry_pi/panasonic_ad_mute.py" ] && [ "$ORIGEN" != "$DESTINO" ]; then
+    echo "== 2/5 El hub (de $ORIGEN)"
+    (cd "$ORIGEN" && tar -cf - --exclude=.git .) | tar -xf - -C "$TEMPORAL/hub"
+else
+    echo "== 2/5 El hub (de GitHub)"
+    curl -sfL "https://codeload.github.com/$REPO/tar.gz/refs/heads/master" -o "$TEMPORAL/hub.tar.gz"
+    tar -xzf "$TEMPORAL/hub.tar.gz" -C "$TEMPORAL/hub" --strip-components=1
+fi
 [ -f "$TEMPORAL/hub/raspberry_pi/panasonic_ad_mute.py" ] || { echo "La descarga no trae el hub." >&2; exit 1; }
 "$HOME/panasonic-tv-hub/termux/parar.sh" >/dev/null 2>&1 || true
 rm -rf "$DESTINO.nuevo"
