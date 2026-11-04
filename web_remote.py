@@ -203,7 +203,6 @@ def estado_completo() -> dict:
         "casa": {"ha": casa.configurada(), "cine": ajustes.leer()["ha_cine"],
                  "ambilight": bool(ajustes.leer()["hyperhdr_url"]), "sintonizador": sintonizador.detectados()},
         "seguidos": seguir.lista(),
-        "ficha_al_cambiar": estado.interruptor("ficha_al_cambiar", CFG.get("FICHA_AL_CAMBIAR", "1").strip() == "1"),
         "senal_guia": dict(en_cache("senal_guia", senal_guia.resumen, 15),
                            silencia=estado.senal_guia_silencia(CFG.get("GUIA_SILENCIA", "0").strip() == "1")),
     }
@@ -637,10 +636,6 @@ def ejecutar_accion(cmd: str, qs: dict):
         if casa.ambilight(cmd == "ambilight_on"):
             return 200, "Ambilight encendido" if cmd == "ambilight_on" else "Ambilight apagado"
         return 502, "HyperHDR no ha contestado"
-    if cmd in ("ficha_cambio_on", "ficha_cambio_off"):
-        estado.poner_interruptor("ficha_al_cambiar", cmd.endswith("_on"))
-        return 200, ("Al cambiar de canal saldrá la ficha de lo que echan" if cmd.endswith("_on")
-                     else "Al cambiar de canal ya no saldrá la ficha")
     if cmd in ("guia_silencia_on", "guia_silencia_off"):
         estado.activar_senal_guia(cmd.endswith("_on"))
         return 200, ("Silenciará con la señal de la guía" if cmd.endswith("_on")
@@ -1077,12 +1072,9 @@ body.sin-scroll{overflow:hidden}
     <div class="lista" id="seguidos" style="margin-top:8px"></div>
     <div class="aviso" id="rec-aviso"></div>
     <div class="dato" style="margin-top:10px"><span>Avisos en la pantalla</span><span id="avisos-estado">—</span></div>
-    <div class="dato"><span>Ficha al cambiar de canal</span><span id="ficha-cambio">—</span></div>
     <div class="g2" style="margin-top:8px">
       <button class="b" data-cmd="avisos_preparar">📲 Preparar avisos</button>
       <button class="b" data-cmd="avisos_probar">💬 Probar un aviso</button>
-      <button class="b oculto" data-cmd="ficha_cambio_on" id="btn-ficha-on">🎬 Ficha al cambiar: poner</button>
-      <button class="b oculto" data-cmd="ficha_cambio_off" id="btn-ficha-off">🎬 Ficha al cambiar: quitar</button>
     </div>
   </div>
 
@@ -1174,10 +1166,11 @@ body.sin-scroll{overflow:hidden}
       <div class="aj-fila"><span>Hasta</span><input type="time" data-aj="noche_hasta"></div>
       <div class="aj-fila"><span>Volumen máximo (0-100)</span><input type="number" min="0" max="100" data-aj="noche_tope"></div>
     </div>
-    <div class="aj-grupo"><h3>🎛️ Botón del mando para la ficha</h3>
-      <div class="aj-fila"><span>Enseña la ficha de lo que echan (otra vez: la quita)</span>
+    <div class="aj-grupo"><h3>🎬 Ficha de lo que echan (IMDb)</h3>
+      <div class="aj-fila"><span>Botón del mando que la enseña (otra vez: la quita)</span>
         <select data-aj="boton_ficha"><option value="amarillo">Amarillo</option><option value="verde">Verde</option>
           <option value="info_doble">«i» dos veces</option><option value="no">Ninguno</option></select></div>
+      <div class="aj-fila"><span>Que salga sola al cambiar de canal (una vez por programa)</span><input type="checkbox" data-aj="ficha_al_cambiar"></div>
     </div>
     <div class="aj-grupo"><h3>⏰ Despertador</h3>
       <div class="aj-fila"><span>Encender la tele sola</span><input type="checkbox" data-aj="despertador_activo"></div>
@@ -1775,9 +1768,6 @@ body.sin-scroll{overflow:hidden}
         cajaSeg.appendChild(linea('⭐ Sigues: ' + s.titulo + ' (' + (ICONOS[s.accion] || '') + ')',
                                   boton('✕', 'dejar-seguir', {'data-id': s.id})));
       });
-      $('ficha-cambio').textContent = d.ficha_al_cambiar ? 'sí (una vez por programa)' : 'no';
-      $('btn-ficha-on').classList.toggle('oculto', !!d.ficha_al_cambiar);
-      $('btn-ficha-off').classList.toggle('oculto', !d.ficha_al_cambiar);
       var sg = d.senal_guia || {};
       $('guia-senal').textContent = (sg.silencia ? 'silencia' : 'solo se apunta') + ' · ' + (sg.coinciden || 0) +
         ' de ' + (sg.botones || 0) + ' veces que pulsaste Silenciar';

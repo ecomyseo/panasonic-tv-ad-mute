@@ -36,9 +36,8 @@ DEFECTOS = {
     "AVISOS_POSICION": "centro",
     "RECORDATORIO_ANTELACION": "60",
     "MODO_APRENDIZAJE": "0",
-    "FICHA_AL_CAMBIAR": "1",  # ficha de lo que echan la primera vez que llegas a ese programa
-    "FICHA_ESPERA": "3",
-    "FICHA_SEGUNDOS": "10",
+    "FICHA_ESPERA": "3",     # segundos en el canal antes de sacar la ficha sola (si está activada en el mando)
+    "FICHA_SEGUNDOS": "10",  # lo que se ve la ficha
     "VOLUMEN_CADA": "20",         # además de al tocar el volumen en el mando: cada cuántos segundos se mira
     "VOLUMEN_ESTABLE": "8",
     "VOLUMEN_TRAS_CAMBIO": "10",

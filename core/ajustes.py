@@ -37,6 +37,7 @@ DEFECTOS = {
     "salir_minutos": 20,
     # Botón del mando que enseña la ficha de lo que echan: amarillo, verde, info_doble (dos veces «i») o no
     "boton_ficha": "amarillo",
+    "ficha_al_cambiar": False,        # además, que salga sola al llegar a un programa (una vez por programa)
     # Otros
     "tv_mac": "",                     # para encender por red (vacío = se busca en la tabla ARP)
     "tmdb_clave": "",                 # TMDb gratuita: nota, carátula y en qué plataformas está sin anuncios

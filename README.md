@@ -102,8 +102,9 @@ Diseñado específicamente para ejecutarse de forma autónoma en una **Raspberry
 * **Con la guía de la tele abierta**, el mismo botón enseña la ficha del programa **marcado** en la guía (de
   cualquier canal o de más tarde), no la de lo que echan. La lee de la pantalla con el «Lector» de la app de avisos
   (`am instrument`, versión 1.3 de la app; si en la tele hay una anterior, el hub la pone al día solo). Tarda unos 4 s.
-* **Ficha al cambiar de canal**: la primera vez que llegas a un programa sale su ficha 10 s; si vuelves al mismo
-  programa no se repite y si estás zapeando rápido no sale. Se quita en el mando o con `FICHA_AL_CAMBIAR=0`.
+* **Ficha sola al cambiar de canal**: viene **apagada** (la ficha sale con el botón). Se activa en «🛠️ Opciones del
+  hub» → «Que salga sola al cambiar de canal»: la primera vez que llegas a un programa sale 10 s; si vuelves al mismo
+  programa no se repite y si estás zapeando rápido no sale.
 * Si en la TV ya estaba **TvOverlay** y no la app propia, se usa TvOverlay (en una esquina y con su letra).
 * No toca el sistema de la TV. Se apagan con `AVISOS_EN_TV=0`. La app se compila con
   `python avisos_app/construir_apk.py` (SDK de Android + JDK 17; la clave de firma vive fuera del proyecto).

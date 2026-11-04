@@ -79,7 +79,6 @@ LINEAS_UTILES = ("Current channel", "getChannelNumber=", "getChannelName=", "_ev
                  "avg_pixel_luma", "u8KeyCode")
 FILTRAR_EN_TV = CFG.get("LOGCAT_FILTRO_TV", "1").strip() != "0"
 TECLAS_VOLUMEN = (0x71, 0x72, 0x73)   # silencio, bajar y subir volumen del mando (registro del núcleo)
-FICHA_AL_CAMBIAR = CFG.get("FICHA_AL_CAMBIAR", "1").strip() == "1"
 FICHA_ESPERA = config.entero(CFG, "FICHA_ESPERA", 3)
 FICHA_SEGUNDOS = config.entero(CFG, "FICHA_SEGUNDOS", 10)
 APRENDIZAJE = CFG.get("MODO_APRENDIZAJE", "0").strip() == "1"
@@ -225,7 +224,9 @@ def al_cambiar_canal(nombre):
         temporizador = threading.Timer(1.5, poner_volumen_del_canal, args=(nombre, objetivo))
         temporizador.daemon = True
         temporizador.start()
-    if not (esperando_canal[0] == nombre and time.time() < esperando_canal[1]):  # los cambios del hub, no
+    # La ficha sola al cambiar de canal solo si está activada en «Opciones del hub» (desde el 4/11/2026 viene
+    # apagada: sale con el botón del mando). Los cambios de canal que hace el propio hub no cuentan.
+    if a.get("ficha_al_cambiar") and not (esperando_canal[0] == nombre and time.time() < esperando_canal[1]):
         temporizador = threading.Timer(FICHA_ESPERA, ficha_al_cambiar, args=(nombre,))
         temporizador.daemon = True
         temporizador.start()
@@ -242,8 +243,9 @@ def al_cambiar_canal(nombre):
 
 
 def ficha_al_cambiar(nombre):
-    """Ficha de lo que echan, la primera vez que llegas a ese programa. Si ya te has ido (zapeo rápido), nada."""
-    if datos.get("canal") != nombre or not estado.interruptor("ficha_al_cambiar", FICHA_AL_CAMBIAR):
+    """Ficha de lo que echan, la primera vez que llegas a ese programa. Si ya te has ido (zapeo rápido) o se ha
+    apagado la opción mientras tanto, nada."""
+    if datos.get("canal") != nombre or not ajustes.leer().get("ficha_al_cambiar"):
         return
     try:
         epg = GuiaEPG(CFG).ahora(nombre)
