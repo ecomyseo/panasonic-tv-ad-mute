@@ -26,6 +26,8 @@ export DEBIAN_FRONTEND=noninteractive
 yes | pkg upgrade -y -o Dpkg::Options::=--force-confnew >/dev/null 2>&1 || true
 pkg install -y -o Dpkg::Options::=--force-confnew python android-tools curl tar >/dev/null
 command -v python >/dev/null && command -v adb >/dev/null || { echo "No se han instalado python o adb." >&2; exit 1; }
+# rclone: la pasarela SFTP del NAS (core/nas_pasarela.py). Si no se instala, el resto del hub sigue igual.
+pkg install -y -o Dpkg::Options::=--force-confnew rclone >/dev/null 2>&1 || echo "Aviso: no se ha podido instalar rclone (la pasarela del NAS no arrancará)."
 
 TEMPORAL="$(mktemp -d)"
 mkdir -p "$TEMPORAL/hub"

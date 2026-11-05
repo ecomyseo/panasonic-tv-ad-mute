@@ -29,9 +29,11 @@ vigilar() {  # vigilar <nombre> <script>
 
 rm -f "$DATOS/parar"
 cd "$DESTINO" || exit 1
-for registro in silenciador web; do  # que los registros no crezcan sin fin
+for registro in silenciador web nas; do  # que los registros no crezcan sin fin
     [ -f "$DATOS/$registro.log" ] && [ "$(wc -c < "$DATOS/$registro.log")" -gt 2000000 ] \
         && mv "$DATOS/$registro.log" "$DATOS/$registro.log.1"
 done
 vigilar silenciador raspberry_pi/panasonic_ad_mute.py
 vigilar web web_remote.py
+# Pasarela del NAS (SFTP cifrado para fuera de casa y nombre DuckDNS). Sin configurar no hace nada.
+vigilar nas core/nas_pasarela.py

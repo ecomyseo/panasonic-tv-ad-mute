@@ -152,6 +152,11 @@ Diseñado específicamente para ejecutarse de forma autónoma en una **Raspberry
 
 ---
 
+### 9. 💾 Pasarela del NAS (en el móvil con Termux, opcional)
+Entrada **cifrada (SFTP)** desde fuera de casa al disco USB del router, con `rclone serve sftp` sobre su FTP, y nombre
+fijo con **DuckDNS** aunque cambie la IP de casa. Sin configurar no hace nada. Detalle en
+[termux/README.md](termux/README.md#-pasarela-del-nas-opcional).
+
 ## 📂 Estructura del Repositorio
 
 ```text

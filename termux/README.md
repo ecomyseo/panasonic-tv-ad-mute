@@ -103,6 +103,22 @@ no puede dejar de cargar por sí mismo. Mientras no haya otra cosa:
 Lo que de verdad lo arregla es que el hub corte la corriente al 80 % y la devuelva al 40 %. Para eso hace falta un
 enchufe que se pueda apagar por wifi (por ejemplo un Shelly Plug S) o un relé; **todavía no está hecho**.
 
+## 💾 Pasarela del NAS (opcional)
+
+Si el router tiene un disco USB compartido por FTP, el móvil puede hacer de puerta **cifrada** para entrar a ese
+disco desde fuera de casa (y para que otros equipos manden ahí sus copias de seguridad):
+
+- `core/nas_pasarela.py` lanza `rclone serve sftp` sobre el FTP del router: desde fuera solo se ve SFTP (SSH), y el
+  FTP, que va sin cifrar, se queda dentro de casa. Si `rclone` se cae, lo vuelve a lanzar.
+- Si se le da un nombre de **DuckDNS**, le dice cada 10 minutos la IP de casa, para que el nombre siga valiendo
+  aunque la operadora la cambie.
+- Sin configurar no hace nada. Se configura **desde el PC de casa** con `POST /api/nas` del mando web (las claves se
+  guardan en `~/.panasonic-tv-hub/estado/nas.json`, con permisos 600, y nunca se devuelven); `GET /api/nas` enseña
+  el estado. Las claves públicas SSH de los equipos que mandan copias se añaden con `POST /api/nas/clave`.
+- En el router hace falta un reenvío de puerto TCP hacia el móvil (puerto interno 2222 por defecto).
+
+`instalar.sh` instala `rclone`; `arrancar.sh` la arranca y `parar.sh` la para con el resto del hub.
+
 ## Órdenes útiles (en Termux)
 
 | Para | Orden |

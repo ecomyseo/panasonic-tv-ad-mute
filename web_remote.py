@@ -32,6 +32,7 @@ import casa as casa_mod  # noqa: E402
 import config  # noqa: E402
 import estado  # noqa: E402
 import ficha_tv  # noqa: E402
+import nas_pasarela  # noqa: E402
 import pi_salud  # noqa: E402
 import recordatorios  # noqa: E402
 import presencia  # noqa: E402
@@ -1983,13 +1984,21 @@ class RemoteHandler(BaseHTTPRequestHandler):
             if orden_desde_otra_web(self.headers):
                 self._json({"status": "error", "message": "Las órdenes solo se aceptan desde la página del mando"}, 403)
                 return
-            if url.path != "/api/ajustes":
+            if url.path not in ("/api/ajustes", "/api/nas", "/api/nas/clave"):
                 self._json({"status": "error", "message": "No existe"}, 404)
                 return
             try:
                 cambios = json.loads(leido.decode("utf-8") or "{}")
                 if not isinstance(cambios, dict):
                     raise ValueError("Se esperaba un objeto")
+                if url.path == "/api/nas":  # pasarela SFTP del NAS: lleva claves, que nunca se devuelven
+                    nas_pasarela.guardar_config(cambios)
+                    self._json({"status": "ok", "message": "NAS guardado", "nas": nas_pasarela.estado_publico()})
+                    return
+                if url.path == "/api/nas/clave":
+                    total = nas_pasarela.anadir_clave_publica(cambios.get("clave", ""))
+                    self._json({"status": "ok", "message": f"Clave añadida ({total} en total)"})
+                    return
                 ajustes.guardar(cambios)
             except ValueError as e:
                 self._json({"status": "error", "message": str(e)}, 400)
@@ -2050,6 +2059,8 @@ class RemoteHandler(BaseHTTPRequestHandler):
                 self._json(privacidad())
             elif url.path == "/api/ajustes":
                 self._json(ajustes_publicos())
+            elif url.path == "/api/nas":
+                self._json(nas_pasarela.estado_publico())
             elif url.path == "/api/aviso_casa":
                 codigo, msg = aviso_casa(qs)
                 self._json({"status": "ok" if codigo < 400 else "error", "message": msg}, codigo)

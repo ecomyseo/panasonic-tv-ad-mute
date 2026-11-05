@@ -3,7 +3,7 @@
 DATOS="$HOME/.panasonic-tv-hub"
 mkdir -p "$DATOS"
 touch "$DATOS/parar"
-for nombre in silenciador web; do
+for nombre in silenciador web nas; do
     for fichero in "$DATOS/$nombre.pid" "$DATOS/$nombre.hijo"; do  # el bucle que vigila y el programa
         if [ -f "$fichero" ]; then
             kill "$(cat "$fichero")" 2>/dev/null
@@ -13,4 +13,6 @@ for nombre in silenciador web; do
 done
 pkill -f "panasonic-tv-hub/raspberry_pi/panasonic_ad_mute.py" 2>/dev/null
 pkill -f "panasonic-tv-hub/web_remote.py" 2>/dev/null
+pkill -f "panasonic-tv-hub/core/nas_pasarela.py" 2>/dev/null
+pkill -f "rclone serve sftp" 2>/dev/null
 echo "Hub parado. Para volver a arrancarlo: ~/panasonic-tv-hub/termux/arrancar.sh"
