@@ -19,14 +19,18 @@ if [ -z "$PREFIX" ] || [ ! -d "/data/data/com.termux" ]; then
     exit 1
 fi
 
-echo "== 1/5 Programas (python y adb)"
+echo "== 1/5 Programas (python, adb y rclone)"
 export DEBIAN_FRONTEND=noninteractive
 # upgrade y no update: con un Termux recién instalado, instalar sin poner al día lo que ya trae deja programas
 # que no arrancan («cannot locate symbol SSL_...», visto en un Umidigi el 3/11/2026)
+# Va sin salida por pantalla: se dice qué está haciendo para que no parezca colgado (5/11/2026).
+echo "   poniendo al día Termux (puede tardar varios minutos; no lo cortes)..."
 yes | pkg upgrade -y -o Dpkg::Options::=--force-confnew >/dev/null 2>&1 || true
+echo "   python y adb..."
 pkg install -y -o Dpkg::Options::=--force-confnew python android-tools curl tar >/dev/null
 command -v python >/dev/null && command -v adb >/dev/null || { echo "No se han instalado python o adb." >&2; exit 1; }
 # rclone: la pasarela SFTP del NAS (core/nas_pasarela.py). Si no se instala, el resto del hub sigue igual.
+echo "   rclone (la primera vez baja unos 20 MB)..."
 pkg install -y -o Dpkg::Options::=--force-confnew rclone >/dev/null 2>&1 || echo "Aviso: no se ha podido instalar rclone (la pasarela del NAS no arrancará)."
 
 TEMPORAL="$(mktemp -d)"
