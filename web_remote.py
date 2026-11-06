@@ -1996,8 +1996,9 @@ class RemoteHandler(BaseHTTPRequestHandler):
                     self._json({"status": "ok", "message": "NAS guardado", "nas": nas_pasarela.estado_publico()})
                     return
                 if url.path == "/api/nas/clave":
-                    total = nas_pasarela.anadir_clave_publica(cambios.get("clave", ""))
-                    self._json({"status": "ok", "message": f"Clave añadida ({total} en total)"})
+                    destino = str(cambios.get("destino", "nas"))
+                    total = nas_pasarela.anadir_clave_publica(cambios.get("clave", ""), destino)
+                    self._json({"status": "ok", "message": f"Clave añadida a «{destino}» ({total} en total)"})
                     return
                 ajustes.guardar(cambios)
             except ValueError as e:
